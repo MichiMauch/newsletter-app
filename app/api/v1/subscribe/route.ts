@@ -1,5 +1,5 @@
 import { createSubscriber } from '@/lib/newsletter'
-import { sendConfirmationEmail } from '@/lib/notify'
+import { sendConfirmationEmail, sendAlreadySubscribedEmail } from '@/lib/notify'
 import { getSiteConfig } from '@/lib/site-config'
 
 const ALLOWED_ORIGINS = [
@@ -36,18 +36,17 @@ export async function POST(request: Request) {
 
     const normalized = email.toLowerCase().trim()
     const result = await createSubscriber(siteId, normalized)
+    const site = await getSiteConfig(siteId)
 
     if (result.alreadyConfirmed) {
-      return new Response(
-        JSON.stringify({ message: 'Fast geschafft! Bitte bestätige deine Anmeldung per E-Mail.' }),
-        { status: 200, headers },
+      sendAlreadySubscribedEmail(site, { email: normalized }).catch((err) =>
+        console.error('[newsletter] already-subscribed email failed:', err),
+      )
+    } else {
+      sendConfirmationEmail(site, { email: normalized, token: result.token }).catch((err) =>
+        console.error('[newsletter] confirmation email failed:', err),
       )
     }
-
-    const site = await getSiteConfig(siteId)
-    sendConfirmationEmail(site, { email: normalized, token: result.token }).catch((err) =>
-      console.error('[newsletter] confirmation email failed:', err),
-    )
 
     return new Response(
       JSON.stringify({ message: 'Fast geschafft! Bitte bestätige deine Anmeldung per E-Mail.' }),

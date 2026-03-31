@@ -71,6 +71,36 @@ export async function sendConfirmationEmail(site: SiteConfig, data: { email: str
   }
 }
 
+// ─── Newsletter: Bereits angemeldet ──────────────────────────────────
+
+export async function sendAlreadySubscribedEmail(site: SiteConfig, data: { email: string }) {
+  try {
+    await getResend().emails.send({
+      from: fromAddress(site),
+      to: data.email,
+      subject: `Du bist bereits für den ${site.name} Newsletter angemeldet`,
+      html: emailWrapper(site, `
+        <h2 style="color: #111827; margin-top: 0;">Du bist bereits dabei!</h2>
+        <p style="color: #374151; line-height: 1.6;">
+          Gute Nachricht — deine E-Mail-Adresse ist bereits für den
+          ${escapeHtml(site.name)} Newsletter bestätigt. Du musst nichts
+          weiter tun und erhältst unsere nächsten Beiträge automatisch.
+        </p>
+        <p style="text-align: center; margin: 32px 0;">
+          <a href="${escapeHtml(site.site_url)}" style="display: inline-block; background: ${site.accent_color}; color: white; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: 15px;">
+            Zur Website
+          </a>
+        </p>
+        <p style="color: #9ca3af; font-size: 13px; line-height: 1.5;">
+          Wenn du dich nicht erneut angemeldet hast, kannst du diese E-Mail einfach ignorieren.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[notify] Failed to send already-subscribed email:', err)
+  }
+}
+
 // ─── Newsletter: Einzelner Post ────────────────────────────────────
 
 export async function sendNewsletterEmail(
