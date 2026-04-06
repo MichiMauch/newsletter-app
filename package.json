@@ -18,6 +18,11 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.2",
+    "@tiptap/extension-link": "^3.22.1",
+    "@tiptap/pm": "^3.22.1",
+    "@tiptap/react": "^3.22.1",
+    "@tiptap/starter-kit": "^3.22.1",
+    "@xyflow/react": "^12.10.2",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.1",
     "react": "19.2.4",

@@ -1,26 +1,312 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════════════════════════════
+   NEUE GRAFIK — Swiss International Typographic Style
+   Forest & Mint editorial dashboard. Zero border-radius.
+   Dramatic type scale. Grid as visible infrastructure.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Tokens ──────────────────────────────────────────────────────── */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-primary: #059669;
+  --color-accent: #059669;
+  --background: #F7F7F5;
+  --background-card: #FFFFFF;
+  --background-elevated: #FFFFFF;
+  --background-sidebar: #0C0C0C;
+  --foreground: #111;
+  --foreground-secondary: #555;
+  --text: #111;
+  --text-secondary: #666;
+  --text-muted: #999;
+  --bg-secondary: #F0F0ED;
+  --bg-tertiary: #E8E8E4;
+  --border: #D8D8D4;
+  --border-color: #D8D8D4;
+  --border-color-strong: #BBB;
+  --glow-color: rgba(5,150,105,0.08);
+  --glow-color-strong: rgba(5,150,105,0.2);
+  --glow-accent: rgba(16,185,129,0.3);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-glow: 0 0 0 1px var(--color-primary);
+}
+
+.dark {
+  --color-primary: #34D399;
+  --color-accent: #34D399;
+  --background: #0A0A0A;
+  --background-card: #141414;
+  --background-elevated: #1A1A1A;
+  --background-sidebar: #050505;
+  --foreground: #EEE;
+  --foreground-secondary: #AAA;
+  --text: #EEE;
+  --text-secondary: #888;
+  --text-muted: #555;
+  --bg-secondary: #1A1A1A;
+    --bg-tertiary: #222;
+    --border: #2A2A2A;
+    --border-color: #2A2A2A;
+    --border-color-strong: #444;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --color-primary-50: #ECFDF5;
+  --color-primary-100: #D1FAE5;
+  --color-primary-200: #A7F3D0;
+  --color-primary-300: #6EE7B7;
+  --color-primary-400: #34D399;
+  --color-primary-500: #10B981;
+  --color-primary-600: #059669;
+  --color-primary-700: #047857;
+  --color-primary-800: #065F46;
+  --color-primary-900: #064E3B;
+  --color-accent-50: #FFFBEB;
+  --color-accent-100: #FEF3C7;
+  --color-accent-200: #FDE68A;
+  --color-accent-300: #FCD34D;
+  --color-accent-400: #FBBF24;
+  --color-accent-500: #F59E0B;
+  --color-accent-600: #D97706;
+  --color-accent-700: #B45309;
+  --color-accent-800: #92400E;
+  --color-accent-900: #78350F;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ─── Reset: Kill all border-radius globally ──────────────────────── */
+
+*, *::before, *::after {
+  border-radius: 0 !important;
 }
+
+/* ─── Body ────────────────────────────────────────────────────────── */
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Vertical grid lines (Swiss hallmark) ────────────────────────── */
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--border) 0px,
+      var(--border) 1px,
+      transparent 1px,
+      transparent 25%
+    );
+  opacity: 0.35;
+}
+
+/* ─── Glass Card → Editorial Panel ────────────────────────────────── */
+
+.glass-card {
+  background: var(--background-card);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: border-color 0.15s ease;
+}
+.glass-card:hover {
+  border-color: var(--foreground);
+}
+
+/* ─── Glass Sidebar → Dark Column ─────────────────────────────────── */
+
+.glass-sidebar {
+  background: var(--background-sidebar);
+  border-right: 1px solid #222;
+  backdrop-filter: none;
+}
+
+/* ─── Sidebar Expanded State ──────────────────────────────────────── */
+
+.glass-sidebar {
+  transition: width 0.2s ease;
+}
+
+.glass-sidebar .sidebar-label {
+  display: none;
+  opacity: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #888;
+  transition: opacity 0.15s ease;
+}
+
+.glass-sidebar.expanded .sidebar-label {
+  display: block;
+  opacity: 1;
+}
+
+.glass-sidebar.expanded .sidebar-icon {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0 12px;
+  gap: 10px;
+}
+
+.glass-sidebar.expanded .sidebar-icon.active .sidebar-label {
+  color: var(--color-primary);
+}
+
+.glass-sidebar.expanded .sidebar-icon:hover .sidebar-label {
+  color: #ddd;
+}
+
+/* ─── Sidebar Icon ────────────────────────────────────────────────── */
+
+.sidebar-icon {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  color: #555; cursor: pointer;
+  border: none; background: none;
+  transition: color 0.1s;
+  position: relative;
+}
+.sidebar-icon:hover { color: #ddd; }
+.sidebar-icon.active {
+  color: var(--color-primary);
+}
+.sidebar-icon.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 2px;
+  background: var(--color-primary);
+}
+
+/* ─── Glow Button → Swiss CTA ─────────────────────────────────────── */
+
+.glow-button {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 12px 32px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.glow-button:hover { background: var(--foreground); }
+.glow-button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.dark .glow-button { color: #000; }
+.dark .glow-button:hover { background: #fff; }
+
+/* ─── Glass Button → Secondary ────────────────────────────────────── */
+
+.glass-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.glass-button:hover {
+  border-color: var(--foreground);
+  color: var(--foreground);
+}
+
+/* ─── Animations ──────────────────────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes glowPulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-fade-in-up { animation: fadeInUp 0.3s ease both; }
+.animate-glow-pulse { animation: glowPulse 2.5s ease-in-out infinite; }
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+
+/* ─── Global Overrides: Tables ────────────────────────────────────── */
+
+table { border-collapse: collapse; width: 100%; }
+thead tr { border-bottom: 2px solid var(--foreground) !important; }
+thead th {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: var(--text-muted) !important;
+  padding: 10px 16px !important;
+}
+tbody td {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+tbody tr:last-child td { border-bottom: none !important; }
+tbody tr:hover { background: var(--bg-secondary) !important; }
+
+/* ─── Global Overrides: Inputs ────────────────────────────────────── */
+
+input, textarea, select {
+  border: 1px solid var(--border) !important;
+  background: var(--bg-secondary) !important;
+  font-family: inherit !important;
+  transition: border-color 0.1s !important;
+}
+input:focus, textarea:focus {
+  border-color: var(--color-primary) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* ─── Global Overrides: Buttons ───────────────────────────────────── */
+
+button { font-family: inherit; cursor: pointer; }
+
+/* ─── Pointer cursor for all interactive elements ────────────────── */
+
+a, button, [role="button"], [type="button"], [type="submit"], [type="reset"],
+label[for], select, summary, [onclick], [tabindex]:not([tabindex="-1"]) {
+  cursor: pointer;
+}
+
+/* ─── Selection & Scrollbar ───────────────────────────────────────── */
+
+::selection { background: var(--color-primary); color: #fff; }
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-color-strong); }
+
+/* ─── Focus ───────────────────────────────────────────────────────── */
+
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
 }

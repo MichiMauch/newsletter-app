@@ -143,14 +143,33 @@ function renderLinkListBlock(posts: PostRef[], site: SiteConfig): string {
 }
 
 function renderTextBlock(content: string): string {
-  const htmlContent = escapeHtml(content).replace(/\n/g, '<br />')
+  // Detect if content is HTML (from tiptap) or plain text (legacy)
+  const isHtml = /<[a-z][\s\S]*>/i.test(content)
+  let htmlContent: string
+
+  if (isHtml) {
+    // Tiptap HTML — inline email-safe styles on tags
+    htmlContent = content
+      .replace(/<p>/g, '<p style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0 0 12px;">')
+      .replace(/<h2>/g, '<h2 style="color: #111827; font-size: 18px; font-weight: 700; margin: 0 0 12px;">')
+      .replace(/<h3>/g, '<h3 style="color: #111827; font-size: 16px; font-weight: 600; margin: 0 0 10px;">')
+      .replace(/<a /g, '<a style="color: #059669; text-decoration: underline;" ')
+      .replace(/<ul>/g, '<ul style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0 0 12px; padding-left: 20px;">')
+      .replace(/<ol>/g, '<ol style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0 0 12px; padding-left: 20px;">')
+      .replace(/<li>/g, '<li style="margin: 0 0 4px;">')
+      .replace(/<blockquote>/g, '<blockquote style="border-left: 3px solid #d1d5db; padding-left: 16px; margin: 0 0 12px; color: #6b7280; font-style: italic;">')
+      .replace(/<hr\s*\/?>/g, '<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;">')
+  } else {
+    // Legacy plain text
+    htmlContent = escapeHtml(content).replace(/\n/g, '<br />')
+    htmlContent = `<p style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0;">${htmlContent}</p>`
+  }
+
   return `
     <table width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
         <td style="padding: 0 32px 32px 32px;">
-          <p style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0;">
-            ${htmlContent}
-          </p>
+          ${htmlContent}
         </td>
       </tr>
     </table>

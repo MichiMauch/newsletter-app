@@ -22,18 +22,30 @@ export async function getContentItem(siteId: string, slug: string): Promise<Cont
 
 export async function getContentItemsBySlugs(siteId: string, slugs: string[]): Promise<Record<string, PostRef>> {
   if (slugs.length === 0) return {}
+
+  // Normalize slugs: strip .md/.mdx extensions for DB lookup
+  const normalizedSlugs = slugs.map((s) => s.replace(/\.(md|mdx)$/, ''))
+  const uniqueSlugs = [...new Set(normalizedSlugs)]
+
   const db = getDb()
   const rows = await db.select().from(contentItems)
-    .where(and(eq(contentItems.siteId, siteId), inArray(contentItems.slug, slugs)))
+    .where(and(eq(contentItems.siteId, siteId), inArray(contentItems.slug, uniqueSlugs)))
 
   const map: Record<string, PostRef> = {}
   for (const item of rows) {
-    map[item.slug] = {
+    const ref: PostRef = {
       slug: item.slug,
       title: item.title,
       summary: item.summary || '',
       image: item.image,
       date: item.date || '',
+    }
+    map[item.slug] = ref
+    // Also map original slugs with extension so blocks using "post.md" find the entry
+    for (const original of slugs) {
+      if (original.replace(/\.(md|mdx)$/, '') === item.slug) {
+        map[original] = ref
+      }
     }
   }
   return map

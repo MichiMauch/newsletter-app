@@ -31,7 +31,6 @@ export type NewsletterRecipient = typeof newsletterRecipients.$inferSelect
 
 export interface NewsletterSendStats extends NewsletterSend {
   delivered_count: number
-  opened_count: number
   clicked_count: number
   bounced_count: number
   complained_count: number
@@ -46,7 +45,6 @@ export interface LinkClickStats {
 export interface OverallStats {
   total_sends: number
   total_recipients: number
-  avg_open_rate: number
   avg_click_rate: number
   avg_bounce_rate: number
   total_complaints: number
@@ -57,7 +55,6 @@ export interface SendTrend {
   subject: string
   sent_at: string
   recipient_count: number
-  open_rate: number
   click_rate: number
   bounce_rate: number
 }
@@ -230,7 +227,7 @@ export async function recordNewsletterRecipientsBatch(
 
 export async function updateRecipientEvent(
   resendEmailId: string,
-  event: 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained',
+  event: 'delivered' | 'clicked' | 'bounced' | 'complained',
   timestamp: string,
   metadata?: { bounce_type?: string; click_url?: string },
 ): Promise<void> {
@@ -239,7 +236,7 @@ export async function updateRecipientEvent(
   const existing = await db.select({
     id: newsletterRecipients.id, sendId: newsletterRecipients.sendId,
     email: newsletterRecipients.email, status: newsletterRecipients.status,
-    openCount: newsletterRecipients.openCount, clickCount: newsletterRecipients.clickCount,
+    clickCount: newsletterRecipients.clickCount,
   }).from(newsletterRecipients).where(eq(newsletterRecipients.resendEmailId, resendEmailId)).limit(1)
 
   if (existing.length === 0) return
@@ -259,21 +256,6 @@ export async function updateRecipientEvent(
       if (isFirst) {
         await db.update(newsletterSends)
           .set({ deliveredCount: sql`${newsletterSends.deliveredCount} + 1` })
-          .where(eq(newsletterSends.id, recipient.sendId))
-      }
-      break
-    }
-    case 'opened': {
-      const isFirstOpen = recipient.openCount === 0
-      await db.run(sql`
-        UPDATE newsletter_recipients
-        SET status = CASE WHEN status IN ('sent', 'delivered') THEN 'opened' ELSE status END,
-            opened_at = COALESCE(opened_at, ${timestamp}), open_count = open_count + 1
-        WHERE id = ${recipient.id}
-      `)
-      if (isFirstOpen) {
-        await db.update(newsletterSends)
-          .set({ openedCount: sql`${newsletterSends.openedCount} + 1` })
           .where(eq(newsletterSends.id, recipient.sendId))
       }
       break
@@ -332,9 +314,16 @@ export async function getNewsletterSendsWithStats(siteId: string): Promise<Newsl
   return rows.map((r) => ({
     id: r.id, site_id: r.siteId, post_slug: r.postSlug, post_title: r.postTitle,
     subject: r.subject, sent_at: r.sentAt, recipient_count: r.recipientCount, status: r.status,
-    delivered_count: r.deliveredCount, opened_count: r.openedCount, clicked_count: r.clickedCount,
+    delivered_count: r.deliveredCount, clicked_count: r.clickedCount,
     bounced_count: r.bouncedCount, complained_count: r.complainedCount,
   }))
+}
+
+export async function getSendBlocksJson(sendId: number): Promise<string | null> {
+  const db = getDb()
+  const rows = await db.select({ blocksJson: newsletterSends.blocksJson })
+    .from(newsletterSends).where(eq(newsletterSends.id, sendId)).limit(1)
+  return rows[0]?.blocksJson ?? null
 }
 
 export async function getRecipientsForSend(sendId: number): Promise<NewsletterRecipient[]> {
@@ -379,7 +368,6 @@ export async function getOverallNewsletterStats(siteId: string): Promise<Overall
   const rows = await db.run(sql`
     SELECT
       COUNT(*) as total_sends, SUM(recipient_count) as total_recipients,
-      CASE WHEN SUM(recipient_count) > 0 THEN ROUND(CAST(SUM(opened_count) AS REAL) / SUM(recipient_count) * 100, 1) ELSE 0 END as avg_open_rate,
       CASE WHEN SUM(recipient_count) > 0 THEN ROUND(CAST(SUM(clicked_count) AS REAL) / SUM(recipient_count) * 100, 1) ELSE 0 END as avg_click_rate,
       CASE WHEN SUM(recipient_count) > 0 THEN ROUND(CAST(SUM(bounced_count) AS REAL) / SUM(recipient_count) * 100, 1) ELSE 0 END as avg_bounce_rate,
       SUM(complained_count) as total_complaints
@@ -388,7 +376,7 @@ export async function getOverallNewsletterStats(siteId: string): Promise<Overall
   const r = rows.rows?.[0] ?? {}
   return {
     total_sends: (r.total_sends as number) || 0, total_recipients: (r.total_recipients as number) || 0,
-    avg_open_rate: (r.avg_open_rate as number) || 0, avg_click_rate: (r.avg_click_rate as number) || 0,
+    avg_click_rate: (r.avg_click_rate as number) || 0,
     avg_bounce_rate: (r.avg_bounce_rate as number) || 0, total_complaints: (r.total_complaints as number) || 0,
   }
 }
@@ -399,14 +387,13 @@ export async function getNewsletterTrends(siteId: string): Promise<SendTrend[]> 
   const db = getDb()
   const rows = await db.run(sql`
     SELECT id, subject, sent_at, recipient_count,
-      CASE WHEN recipient_count > 0 THEN ROUND(CAST(opened_count AS REAL) / recipient_count * 100, 1) ELSE 0 END as open_rate,
       CASE WHEN recipient_count > 0 THEN ROUND(CAST(clicked_count AS REAL) / recipient_count * 100, 1) ELSE 0 END as click_rate,
       CASE WHEN recipient_count > 0 THEN ROUND(CAST(bounced_count AS REAL) / recipient_count * 100, 1) ELSE 0 END as bounce_rate
     FROM newsletter_sends WHERE site_id = ${siteId} ORDER BY sent_at ASC
   `)
   return (rows.rows ?? []).map((r) => ({
     id: r.id as number, subject: r.subject as string, sent_at: r.sent_at as string,
-    recipient_count: (r.recipient_count as number) || 0, open_rate: (r.open_rate as number) || 0,
+    recipient_count: (r.recipient_count as number) || 0,
     click_rate: (r.click_rate as number) || 0, bounce_rate: (r.bounce_rate as number) || 0,
   }))
 }

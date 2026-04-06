@@ -70,7 +70,6 @@ export const newsletterSends = sqliteTable('newsletter_sends', {
   recipientCount: integer('recipient_count').notNull().default(0),
   status: text('status').notNull().default('sent'),
   deliveredCount: integer('delivered_count').notNull().default(0),
-  openedCount: integer('opened_count').notNull().default(0),
   clickedCount: integer('clicked_count').notNull().default(0),
   bouncedCount: integer('bounced_count').notNull().default(0),
   complainedCount: integer('complained_count').notNull().default(0),
@@ -85,10 +84,8 @@ export const newsletterRecipients = sqliteTable('newsletter_recipients', {
   sendId: integer('send_id').notNull(),
   email: text('email').notNull(),
   resendEmailId: text('resend_email_id').unique(),
-  status: text('status').notNull().default('sent').$type<'sent' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained'>(),
+  status: text('status').notNull().default('sent').$type<'sent' | 'delivered' | 'clicked' | 'bounced' | 'complained'>(),
   deliveredAt: text('delivered_at'),
-  openedAt: text('opened_at'),
-  openCount: integer('open_count').notNull().default(0),
   clickedAt: text('clicked_at'),
   clickCount: integer('click_count').notNull().default(0),
   bouncedAt: text('bounced_at'),
@@ -118,7 +115,9 @@ export const emailAutomations = sqliteTable('email_automations', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   siteId: text('site_id').notNull().default('kokomo'),
   name: text('name').notNull(),
-  triggerType: text('trigger_type').notNull().default('subscriber_confirmed'),
+  // DEPRECATED: trigger_type/trigger_config moved to trigger node. Kept for legacy fallback.
+  triggerType: text('trigger_type').notNull().default('subscriber_confirmed').$type<'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked'>(),
+  triggerConfig: text('trigger_config').notNull().default('{}'),
   active: integer('active').notNull().default(0),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
@@ -126,7 +125,9 @@ export const emailAutomations = sqliteTable('email_automations', {
   index('idx_ea_site').on(table.siteId),
 ])
 
-// ─── Email Automation Steps ─────────────────────────────────────────────
+// ─── Email Automation Steps (DEPRECATED — replaced by automation_nodes) ──
+// Kept for FK compat with email_automation_sends and historical data.
+// Will be dropped in a future migration once all automations are graph-based.
 
 export const emailAutomationSteps = sqliteTable('email_automation_steps', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -134,6 +135,7 @@ export const emailAutomationSteps = sqliteTable('email_automation_steps', {
   stepOrder: integer('step_order').notNull().default(0),
   delayHours: integer('delay_hours').notNull().default(0),
   subject: text('subject').notNull().default(''),
+  stepType: text('step_type').notNull().default('email').$type<'email' | 'last_newsletter'>(),
   blocksJson: text('blocks_json').notNull().default('[]'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
@@ -151,6 +153,9 @@ export const emailAutomationEnrollments = sqliteTable('email_automation_enrollme
   enrolledAt: text('enrolled_at').notNull().default(sql`(datetime('now'))`),
   completedAt: text('completed_at'),
   cancelledAt: text('cancelled_at'),
+  triggerRef: text('trigger_ref'),
+  currentNodeId: text('current_node_id'),
+  contextJson: text('context_json').notNull().default('{}'),
 }, (table) => [
   uniqueIndex('idx_eae_unique').on(table.automationId, table.subscriberEmail),
   index('idx_eae_automation').on(table.automationId),
@@ -168,8 +173,6 @@ export const emailAutomationSends = sqliteTable('email_automation_sends', {
   status: text('status').notNull().default('sent'),
   sentAt: text('sent_at').notNull().default(sql`(datetime('now'))`),
   deliveredAt: text('delivered_at'),
-  openedAt: text('opened_at'),
-  openCount: integer('open_count').notNull().default(0),
   clickedAt: text('clicked_at'),
   clickCount: integer('click_count').notNull().default(0),
   bouncedAt: text('bounced_at'),
@@ -178,4 +181,66 @@ export const emailAutomationSends = sqliteTable('email_automation_sends', {
 }, (table) => [
   index('idx_eaS_enrollment').on(table.enrollmentId),
   index('idx_eaS_resend').on(table.resendEmailId),
+])
+
+// ─── Automation Graph: Nodes ────────────────────────────────────────────
+
+export const automationNodes = sqliteTable('automation_nodes', {
+  id: text('id').primaryKey(),
+  automationId: integer('automation_id').notNull().references(() => emailAutomations.id, { onDelete: 'cascade' }),
+  nodeType: text('node_type').notNull().$type<'trigger' | 'delay' | 'email' | 'last_newsletter' | 'condition' | 'tag'>(),
+  configJson: text('config_json').notNull().default('{}'),
+  positionX: integer('position_x').notNull().default(0),
+  positionY: integer('position_y').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_an_automation').on(table.automationId),
+  index('idx_an_type').on(table.nodeType),
+])
+
+// ─── Automation Graph: Edges ────────────────────────────────────────────
+
+export const automationEdges = sqliteTable('automation_edges', {
+  id: text('id').primaryKey(),
+  automationId: integer('automation_id').notNull().references(() => emailAutomations.id, { onDelete: 'cascade' }),
+  sourceNodeId: text('source_node_id').notNull().references(() => automationNodes.id, { onDelete: 'cascade' }),
+  targetNodeId: text('target_node_id').notNull().references(() => automationNodes.id, { onDelete: 'cascade' }),
+  edgeLabel: text('edge_label'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_ae_automation').on(table.automationId),
+  index('idx_ae_source').on(table.sourceNodeId),
+])
+
+// ─── Automation Graph: Node Executions (Run-Log) ───────────────────────
+
+export const automationNodeExecutions = sqliteTable('automation_node_executions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  enrollmentId: integer('enrollment_id').notNull().references(() => emailAutomationEnrollments.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id').notNull(),
+  status: text('status').notNull().default('pending').$type<'pending' | 'completed' | 'failed' | 'skipped'>(),
+  startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
+  completedAt: text('completed_at'),
+  error: text('error'),
+  outputJson: text('output_json'),
+  retryCount: integer('retry_count').notNull().default(0),
+}, (table) => [
+  index('idx_ane_enrollment').on(table.enrollmentId),
+  index('idx_ane_node').on(table.nodeId),
+  index('idx_ane_status').on(table.status),
+])
+
+// ─── Subscriber Tags (für Tag-Node + Condition) ────────────────────────
+
+export const subscriberTags = sqliteTable('subscriber_tags', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  siteId: text('site_id').notNull(),
+  subscriberEmail: text('subscriber_email').notNull(),
+  tag: text('tag').notNull(),
+  addedAt: text('added_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('idx_st_unique').on(table.siteId, table.subscriberEmail, table.tag),
+  index('idx_st_email').on(table.siteId, table.subscriberEmail),
+  index('idx_st_tag').on(table.siteId, table.tag),
 ])

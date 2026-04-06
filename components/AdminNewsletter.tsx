@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, type FormEvent } from 'react'
+import React, { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
+import TiptapEditor from './TiptapEditor'
 import AutomationEditor from './AutomationEditor'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
 import type { SiteConfig } from '@/lib/site-config'
@@ -15,7 +16,7 @@ import {
 const PREVIEW_SITE_CONFIG: SiteConfig = {
   id: 'preview',
   name: 'Newsletter',
-  site_url: '',
+  site_url: 'https://preview.localhost',
   logo_url: null,
   primary_color: '#017734',
   accent_color: '#05DE66',
@@ -36,9 +37,9 @@ interface Subscriber {
   id: number
   email: string
   status: 'pending' | 'confirmed' | 'unsubscribed'
-  created_at: string
-  confirmed_at: string | null
-  unsubscribed_at: string | null
+  createdAt: string
+  confirmedAt: string | null
+  unsubscribedAt: string | null
 }
 
 interface NewsletterSend {
@@ -49,7 +50,6 @@ interface NewsletterSend {
   sent_at: string
   recipient_count: number
   delivered_count?: number
-  opened_count?: number
   clicked_count?: number
   bounced_count?: number
   complained_count?: number
@@ -59,10 +59,8 @@ interface NewsletterRecipientRow {
   id: number
   email: string
   resend_email_id: string | null
-  status: 'sent' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained'
+  status: 'sent' | 'delivered' | 'clicked' | 'bounced' | 'complained'
   delivered_at: string | null
-  opened_at: string | null
-  open_count: number
   clicked_at: string | null
   click_count: number
   bounced_at: string | null
@@ -79,7 +77,6 @@ interface LinkClickRow {
 interface OverallStatsData {
   total_sends: number
   total_recipients: number
-  avg_open_rate: number
   avg_click_rate: number
   avg_bounce_rate: number
   total_complaints: number
@@ -98,7 +95,6 @@ interface SendTrend {
   subject: string
   sent_at: string
   recipient_count: number
-  open_rate: number
   click_rate: number
   bounce_rate: number
 }
@@ -143,7 +139,7 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
   },
   unsubscribed: {
     label: 'Abgemeldet',
-    cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+    cls: 'bg-[var(--bg-secondary)] text-[var(--text-muted)]',
   },
 }
 
@@ -151,6 +147,7 @@ const blockTypeLabels: Record<NewsletterBlock['type'], string> = {
   hero: 'Hero',
   text: 'Freitext',
   'link-list': 'Link-Liste',
+  last_newsletter: 'Letzter Newsletter',
 }
 
 function createBlock(type: NewsletterBlock['type']): NewsletterBlock {
@@ -162,6 +159,8 @@ function createBlock(type: NewsletterBlock['type']): NewsletterBlock {
       return { id, type: 'text', content: '' }
     case 'link-list':
       return { id, type: 'link-list', slugs: [] }
+    case 'last_newsletter':
+      return { id, type: 'last_newsletter' }
   }
 }
 
@@ -250,7 +249,7 @@ function getUsedSlugs(blocks: NewsletterBlock[]): Set<string> {
 // --- Reusable UI ------------------------------------------------------
 
 const inputCls =
-  'w-full rounded-xl border border-slate-300 bg-white/70 px-4 py-3 text-sm text-slate-900 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30 dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-white'
+  'w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30'
 
 // --- Drag & Drop Components ------------------------------------------
 
@@ -268,10 +267,10 @@ function DraggablePostItem({
         e.dataTransfer.setData('text/plain', post.slug)
         e.dataTransfer.effectAllowed = 'copy'
       }}
-      className={`flex cursor-grab items-center gap-3 rounded-lg border border-slate-200 bg-white/60 px-3 py-2 transition-all active:cursor-grabbing dark:border-slate-700 dark:bg-slate-800/60 ${
+      className={`flex cursor-grab items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background-card)] px-3 py-2 transition-all active:cursor-grabbing ${
         isUsed
           ? 'opacity-40'
-          : 'hover:border-primary-300 hover:shadow-sm dark:hover:border-primary-600'
+          : 'hover:border-primary-400 dark:hover:border-primary-500'
       }`}
     >
       {post.image ? (
@@ -282,7 +281,7 @@ function DraggablePostItem({
           draggable={false}
         />
       ) : (
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400 dark:bg-slate-700 dark:text-slate-500">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-[var(--bg-secondary)] text-xs text-[var(--text-muted)]">
           Bild
         </div>
       )}
@@ -332,7 +331,7 @@ function DropSlot({
         className={`relative rounded-xl border-2 transition-colors ${
           dragOver
             ? 'border-primary-400 bg-primary-50/50 dark:border-primary-500 dark:bg-primary-900/20'
-            : 'border-slate-200 bg-white/50 dark:border-slate-700 dark:bg-slate-800/50'
+            : 'border-[var(--border)] bg-[var(--background-card)]'
         }`}
       >
         {label && (
@@ -342,7 +341,7 @@ function DropSlot({
           {post.image ? (
             <img src={post.image} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />
           ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-400 dark:bg-slate-700">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[var(--bg-secondary)] text-xs text-[var(--text-muted)]">
               Bild
             </div>
           )}
@@ -352,7 +351,7 @@ function DropSlot({
           </div>
           <button
             onClick={onClear}
-            className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-red-100 hover:text-red-600 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+            className="shrink-0 rounded-full bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
             title="Entfernen"
           >
             &times;
@@ -371,7 +370,7 @@ function DropSlot({
       className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
         dragOver
           ? 'border-primary-400 bg-primary-50/50 text-primary-600 dark:border-primary-500 dark:bg-primary-900/20 dark:text-primary-400'
-          : 'border-slate-300 text-[var(--text-secondary)] dark:border-slate-600'
+          : 'border-[var(--border)] text-[var(--text-secondary)]'
       }`}
     >
       {label && <div className="mb-1 text-xs font-medium">{label}</div>}
@@ -413,42 +412,47 @@ function LoginForm({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="mx-auto max-w-md">
-      <div className="glass-card rounded-2xl p-8 shadow-lg">
-        <h2 className="mb-6 text-center text-xl font-semibold text-[var(--text)]">Admin Login</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <div style={{ width: 380 }}>
+      <div style={{ borderBottom: '3px solid var(--color-primary)', marginBottom: 40, paddingBottom: 12 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>
+          Newsletter
+        </div>
+        <h2 style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--text)', lineHeight: 1 }}>
+          Admin
+        </h2>
+      </div>
+      <form onSubmit={handleSubmit}>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>E-Mail</label>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="E-Mail"
             required
             disabled={loading}
-            className="w-full rounded-full border border-slate-300 bg-white/70 px-5 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30 disabled:opacity-50 dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-primary-500 dark:focus:ring-primary-500/30"
+            style={{ width: '100%', padding: '12px 0', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', fontSize: 15, color: 'var(--text)', outline: 'none' }}
           />
+        </div>
+        <div style={{ marginBottom: 32 }}>
+          <label style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Passwort</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Passwort"
             required
             disabled={loading}
-            className="w-full rounded-full border border-slate-300 bg-white/70 px-5 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30 disabled:opacity-50 dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-primary-500 dark:focus:ring-primary-500/30"
+            style={{ width: '100%', padding: '12px 0', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', fontSize: 15, color: 'var(--text)', outline: 'none' }}
           />
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-full bg-primary-700px-6 py-3 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-800 hover:shadow-md disabled:opacity-50 dark:bg-primary-600 dark:hover:bg-primary-500"
-          >
-            {loading ? 'Wird angemeldet…' : 'Anmelden'}
-          </button>
-        </form>
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-200/50 bg-red-50/60 px-4 py-3 text-center text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300">
-            {error}
-          </div>
-        )}
-      </div>
+        </div>
+        <button type="submit" disabled={loading} className="glow-button" style={{ width: '100%' }}>
+          {loading ? 'Wird angemeldet…' : 'Anmelden →'}
+        </button>
+      </form>
+      {error && (
+        <div style={{ marginTop: 20, padding: '12px 16px', borderLeft: '3px solid #ef4444', background: 'var(--bg-secondary)', fontSize: 13, color: '#ef4444' }}>
+          {error}
+        </div>
+      )}
     </div>
   )
 }
@@ -461,8 +465,8 @@ const slotMiniIcons: Record<NewsletterBlock['type'], React.ReactElement> = {
   ),
   text: (
     <div className="mb-1 space-y-0.5">
-      <div className="h-1 w-full rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="h-1 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="h-1 w-full rounded bg-[var(--border)]" />
+      <div className="h-1 w-3/4 rounded bg-[var(--border)]" />
     </div>
   ),
   'link-list': (
@@ -471,6 +475,9 @@ const slotMiniIcons: Record<NewsletterBlock['type'], React.ReactElement> = {
       <div className="h-1.5 w-full rounded bg-primary-100 dark:bg-primary-900" />
       <div className="h-1.5 w-3/4 rounded bg-primary-100 dark:bg-primary-900" />
     </div>
+  ),
+  last_newsletter: (
+    <div className="mb-1 h-4 rounded bg-amber-200 dark:bg-amber-800" />
   ),
 }
 
@@ -486,7 +493,7 @@ function TemplateCard({
   return (
     <button
       onClick={onSelect}
-      className="group relative flex flex-col rounded-xl border border-slate-200 bg-white/60 p-4 text-left transition-all hover:border-primary-400 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/60 dark:hover:border-primary-500"
+      className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-[var(--background-card)] p-4 text-left transition-all hover:border-primary-400 dark:hover:border-primary-500" style={{ boxShadow: 'var(--shadow-sm)' }}
     >
       {onDelete && (
         <span
@@ -499,7 +506,7 @@ function TemplateCard({
           &times;
         </span>
       )}
-      <div className="mb-3 space-y-1 rounded-lg bg-slate-50 p-2 dark:bg-slate-900/50">
+      <div className="mb-3 space-y-1 rounded-lg bg-[var(--bg-secondary)] p-2">
         {template.slots.map((slot, i) => (
           <div key={i}>{slotMiniIcons[slot.type]}</div>
         ))}
@@ -518,7 +525,7 @@ function InsertToolbar({ onInsert, alwaysExpanded }: {
   const [open, setOpen] = useState(false)
 
   const btnCls =
-    'rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-600 dark:border-slate-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400'
+    'rounded-lg border border-dashed border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400'
 
   if (open || alwaysExpanded) {
     return (
@@ -535,15 +542,15 @@ function InsertToolbar({ onInsert, alwaysExpanded }: {
 
   return (
     <div className="group flex items-center justify-center py-1">
-      <div className="h-px flex-1 border-t border-dashed border-slate-200 opacity-0 transition-opacity group-hover:opacity-100 dark:border-slate-700" />
+      <div className="h-px flex-1 border-t border-dashed border-[var(--border)] opacity-0 transition-opacity group-hover:opacity-100" />
       <button
         onClick={() => setOpen(true)}
-        className="mx-2 flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-xs text-slate-400 opacity-40 transition-all hover:border-primary-400 hover:text-primary-500 group-hover:opacity-100 dark:border-slate-600 dark:text-slate-500"
+        className="mx-2 flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)] opacity-40 transition-all hover:border-primary-400 hover:text-primary-500 group-hover:opacity-100 "
         title="Block einfügen"
       >
         +
       </button>
-      <div className="h-px flex-1 border-t border-dashed border-slate-200 opacity-0 transition-opacity group-hover:opacity-100 dark:border-slate-700" />
+      <div className="h-px flex-1 border-t border-dashed border-[var(--border)] opacity-0 transition-opacity group-hover:opacity-100" />
     </div>
   )
 }
@@ -599,17 +606,17 @@ function SlotCard({
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(null)}
       onDrop={handleDrop}
-      className={`relative rounded-xl border bg-white/50 p-4 dark:bg-slate-800/50 ${
+      className={`relative rounded-xl border bg-[var(--background-card)] p-4 ${
         dragOver === 'above'
-          ? 'border-t-primary-500 border-t-4 border-x-slate-200 border-b-slate-200 bg-primary-50/30 dark:border-x-slate-700 dark:border-b-slate-700 dark:bg-primary-900/10'
+          ? 'border-t-primary-500 border-t-4 border-x-[var(--border)] border-b-[var(--border)] bg-primary-50/30 dark:bg-primary-900/10'
           : dragOver === 'below'
-            ? 'border-b-primary-500 border-b-4 border-x-slate-200 border-t-slate-200 bg-primary-50/30 dark:border-x-slate-700 dark:border-t-slate-700 dark:bg-primary-900/10'
-            : 'border-slate-200 dark:border-slate-700'
+            ? 'border-b-primary-500 border-b-4 border-x-[var(--border)] border-t-[var(--border)] bg-primary-50/30 dark:bg-primary-900/10'
+            : 'border-[var(--border)]'
       }`}
     >
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="cursor-grab text-slate-400 active:cursor-grabbing dark:text-slate-500" title="Ziehen zum Umsortieren">&#x2807;</span>
+          <span className="cursor-grab text-[var(--text-muted)] active:cursor-grabbing" title="Ziehen zum Umsortieren">&#x2807;</span>
           <span className="rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
             {blockTypeLabels[block.type]}
           </span>
@@ -617,7 +624,7 @@ function SlotCard({
         {onRemove && (
           <button
             onClick={onRemove}
-            className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 transition-colors hover:bg-red-100 hover:text-red-600 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+            className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
             title="Block entfernen"
           >
             &times;
@@ -655,7 +662,7 @@ function SlotCard({
           ))}
           <button
             onClick={() => onUpdate({ ...block, slugs: [...block.slugs, ''] })}
-            className="w-full rounded-xl border-2 border-dashed border-slate-300 px-4 py-3 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-600 dark:border-slate-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+            className="w-full rounded-xl border-2 border-dashed border-[var(--border)] px-4 py-3 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
           >
             + Artikel hinzufügen
           </button>
@@ -663,12 +670,10 @@ function SlotCard({
       )}
 
       {block.type === 'text' && (
-        <textarea
-          value={block.content}
-          onChange={(e) => onUpdate({ ...block, content: e.target.value })}
-          rows={4}
+        <TiptapEditor
+          content={block.content}
+          onChange={(html) => onUpdate({ ...block, content: html })}
           placeholder="Freitext eingeben…"
-          className={`${inputCls} resize-y`}
         />
       )}
     </div>
@@ -713,7 +718,7 @@ function TemplateBuilder({
   }
 
   const toolbarBtnCls =
-    'rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-600 dark:border-slate-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400'
+    'rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400'
 
   return (
     <div className="space-y-5">
@@ -744,7 +749,7 @@ function TemplateBuilder({
           {slots.map((slot, i) => (
             <div
               key={i}
-              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/50 px-4 py-2.5 dark:border-slate-700 dark:bg-slate-800/50"
+              className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background-card)] px-4 py-2.5"
             >
               <span className="text-sm font-medium text-[var(--text)]">
                 {i + 1}. {blockTypeLabels[slot.type]}
@@ -753,14 +758,14 @@ function TemplateBuilder({
                 <button
                   onClick={() => moveSlot(i, -1)}
                   disabled={i === 0}
-                  className="rounded px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-slate-100 disabled:opacity-30 dark:hover:bg-slate-700"
+                  className="rounded px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] disabled:opacity-30"
                 >
                   &uarr;
                 </button>
                 <button
                   onClick={() => moveSlot(i, 1)}
                   disabled={i === slots.length - 1}
-                  className="rounded px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-slate-100 disabled:opacity-30 dark:hover:bg-slate-700"
+                  className="rounded px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] disabled:opacity-30"
                 >
                   &darr;
                 </button>
@@ -777,7 +782,7 @@ function TemplateBuilder({
       )}
 
       {slots.length === 0 && (
-        <div className="rounded-xl border border-dashed border-slate-300 px-6 py-6 text-center text-sm text-[var(--text-secondary)] dark:border-slate-600">
+        <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-6 text-center text-sm text-[var(--text-secondary)]">
           Füge oben Block-Typen hinzu, um dein Template zu definieren.
         </div>
       )}
@@ -785,14 +790,14 @@ function TemplateBuilder({
       <div className="flex gap-3">
         <button
           onClick={onCancel}
-          className="rounded-full border border-slate-300 px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+          className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
         >
           Abbrechen
         </button>
         <button
           onClick={handleSave}
           disabled={!name.trim() || slots.length === 0}
-          className="rounded-full bg-primary-700px-5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-800 hover:shadow-md disabled:opacity-50"
+          className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-700 hover:shadow-md disabled:opacity-50"
         >
           Template speichern
         </button>
@@ -812,17 +817,17 @@ function PreviewModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900">
+      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-[var(--background-elevated)] p-6 dark:bg-[var(--background-elevated)]">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-[var(--text)]">Vorschau</h3>
           <button
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
           >
             Schliessen
           </button>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 ">
           <div
             className="mx-auto max-w-[600px]"
             dangerouslySetInnerHTML={{ __html: html }}
@@ -841,249 +846,622 @@ const MONTH_LABELS: Record<string, string> = {
   '09': 'Sep', '10': 'Okt', '11': 'Nov', '12': 'Dez',
 }
 
+// --- Click Heatmap -------------------------------------------------------
+
+function ClickHeatmap({
+  html,
+  linkClicks,
+  recipientCount,
+}: {
+  html: string
+  linkClicks: LinkClickRow[]
+  recipientCount: number
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [iframeHeight, setIframeHeight] = useState(600)
+
+  const maxClicks = Math.max(...linkClicks.map((lc) => lc.click_count), 1)
+
+  // Build a map from URL -> click data
+  const clickMap = new Map<string, LinkClickRow>()
+  for (const lc of linkClicks) {
+    clickMap.set(lc.url, lc)
+  }
+
+  const injectHeatmap = useCallback(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+    const doc = iframe.contentDocument
+    if (!doc) return
+
+    // Set iframe height to content
+    const body = doc.body
+    if (body) {
+      setIframeHeight(body.scrollHeight + 20)
+    }
+
+    // Find all links and overlay heatmap
+    const links = doc.querySelectorAll('a[href]')
+    links.forEach((link) => {
+      const a = link as HTMLAnchorElement
+      const href = a.href
+      const lc = clickMap.get(href)
+      if (!lc) return
+
+      // Make the link's parent position:relative if not already
+      const parent = a.parentElement
+      if (parent) {
+        const pos = doc.defaultView?.getComputedStyle(parent).position
+        if (pos === 'static') parent.style.position = 'relative'
+      }
+
+      // Intensity: 0..1
+      const intensity = lc.click_count / maxClicks
+      const clickPct = recipientCount > 0 ? Math.round((lc.unique_clickers / recipientCount) * 100) : 0
+
+      // Color: from cool (low) to hot (high)
+      const hue = Math.round((1 - intensity) * 60) // 60=yellow, 0=red
+      const bgColor = `hsla(${hue}, 100%, 50%, ${0.15 + intensity * 0.35})`
+      const borderColor = `hsla(${hue}, 100%, 45%, ${0.4 + intensity * 0.4})`
+
+      // Apply heatmap overlay to the link itself
+      a.style.position = 'relative'
+      a.style.backgroundColor = bgColor
+      a.style.outline = `2px solid ${borderColor}`
+      a.style.outlineOffset = '2px'
+
+      // Add badge
+      const badge = doc.createElement('span')
+      badge.textContent = `${lc.click_count} Klicks · ${clickPct}%`
+      badge.style.cssText = `
+        position: absolute; top: -10px; right: -4px; z-index: 10;
+        background: hsl(${hue}, 90%, 42%); color: #fff;
+        font-size: 10px; font-weight: 700; font-family: system-ui, sans-serif;
+        padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+        line-height: 1.4; pointer-events: none;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      `
+      a.appendChild(badge)
+    })
+  }, [clickMap, maxClicks, recipientCount])
+
+  const handleLoad = useCallback(() => {
+    // Small delay to let the iframe render
+    setTimeout(injectHeatmap, 100)
+  }, [injectHeatmap])
+
+  // Render the newsletter HTML into the iframe via srcdoc
+  const iframeSrc = `
+    <!DOCTYPE html>
+    <html><head>
+      <meta charset="utf-8" />
+      <style>
+        body { margin: 0; padding: 16px; background: #f3f4f6; display: flex; justify-content: center; }
+        a { pointer-events: none; }
+      </style>
+    </head><body>${html}</body></html>
+  `
+
+  return (
+    <div className="glass-card overflow-hidden rounded-xl">
+      <div className="border-b border-[var(--border)] px-5 py-3 flex items-center justify-between">
+        <h4 className="font-medium text-[var(--text)]">Klick-Heatmap</h4>
+        <div className="flex items-center gap-3 text-[10px] text-[var(--text-secondary)]">
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-5" style={{ background: 'hsla(60,100%,50%,0.4)', border: '1px solid hsla(60,100%,45%,0.6)' }} /> Wenig</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-5" style={{ background: 'hsla(30,100%,50%,0.4)', border: '1px solid hsla(30,100%,45%,0.6)' }} /> Mittel</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-5" style={{ background: 'hsla(0,100%,50%,0.5)', border: '1px solid hsla(0,100%,45%,0.8)' }} /> Viel</span>
+        </div>
+      </div>
+      <div ref={containerRef} className="relative bg-[#f3f4f6] dark:bg-[#1a1a1a]">
+        <iframe
+          ref={iframeRef}
+          srcDoc={iframeSrc}
+          onLoad={handleLoad}
+          style={{ width: '100%', height: iframeHeight, border: 'none', display: 'block' }}
+          sandbox="allow-same-origin"
+          title="Newsletter Klick-Heatmap"
+        />
+      </div>
+    </div>
+  )
+}
+
+function ClickHeatmapList({
+  linkClicks,
+  recipientCount,
+}: {
+  linkClicks: LinkClickRow[]
+  recipientCount: number
+}) {
+  const maxClicks = Math.max(...linkClicks.map((lc) => lc.click_count), 1)
+
+  return (
+    <div className="glass-card overflow-hidden rounded-xl">
+      <div className="border-b border-[var(--border)] px-5 py-3 flex items-center justify-between">
+        <h4 className="font-medium text-[var(--text)]">Klick-Heatmap</h4>
+        <div className="flex items-center gap-3 text-[10px] text-[var(--text-secondary)]">
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-5" style={{ background: 'hsla(60,100%,50%,0.4)', border: '1px solid hsla(60,100%,45%,0.6)' }} /> Wenig</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-5" style={{ background: 'hsla(30,100%,50%,0.4)', border: '1px solid hsla(30,100%,45%,0.6)' }} /> Mittel</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-5" style={{ background: 'hsla(0,100%,50%,0.5)', border: '1px solid hsla(0,100%,45%,0.8)' }} /> Viel</span>
+        </div>
+      </div>
+      <div className="p-5 space-y-3">
+        {linkClicks.map((lc, i) => {
+          const intensity = lc.click_count / maxClicks
+          const hue = Math.round((1 - intensity) * 60)
+          const pct = recipientCount > 0 ? Math.round((lc.unique_clickers / recipientCount) * 100) : 0
+          const barWidth = Math.max(Math.round(intensity * 100), 4)
+
+          // Extract a readable label from the URL
+          let label = lc.url
+          try {
+            const u = new URL(lc.url)
+            label = u.pathname === '/' ? u.hostname : u.pathname.replace(/\/$/, '').split('/').pop() || u.pathname
+          } catch { /* keep full url */ }
+
+          return (
+            <div key={i} className="relative">
+              {/* Background bar */}
+              <div
+                className="absolute inset-y-0 left-0"
+                style={{
+                  width: `${barWidth}%`,
+                  background: `hsla(${hue}, 100%, 50%, ${0.1 + intensity * 0.15})`,
+                  borderRight: `3px solid hsla(${hue}, 100%, 45%, ${0.5 + intensity * 0.4})`,
+                }}
+              />
+              <div className="relative flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[var(--text)] truncate" title={lc.url}>
+                    {label}
+                  </div>
+                  <div className="text-[10px] text-[var(--text-secondary)] truncate" title={lc.url}>
+                    {lc.url.length > 70 ? lc.url.substring(0, 67) + '…' : lc.url}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span
+                    className="text-xs font-bold text-white px-2 py-0.5"
+                    style={{ background: `hsl(${hue}, 90%, 42%)` }}
+                  >
+                    {lc.click_count} Klicks
+                  </span>
+                  <span className="text-xs text-[var(--text-secondary)]">{pct}%</span>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function EngagementTrendChart({ trends }: { trends: SendTrend[] }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
   if (trends.length < 2) return null
 
-  const chartHeight = 180
-  const paddingLeft = 36
-  const paddingRight = 12
-  const paddingTop = 16
-  const paddingBottom = 32
-  const innerHeight = chartHeight - paddingTop - paddingBottom
-  const maxRate = Math.max(
-    ...trends.map((t) => t.click_rate),
-    10
-  )
-  // Round up to next nice number
-  const yMax = Math.ceil(maxRate / 10) * 10
+  const values = trends.map((t) => t.click_rate)
+  const dataMax = Math.max(...values, 1)
+  const dataMin = Math.min(...values)
+  const padding = Math.max(Math.ceil((dataMax - dataMin) * 0.25), 2)
+  const yMin = Math.max(dataMin - padding, 0)
+  const yMax = Math.min(dataMax + padding, 100)
+  const yRange = yMax - yMin || 1
 
-  const pointSpacing = trends.length > 1 ? 100 / (trends.length - 1) : 50
+  const avgClick = trends.reduce((s, t) => s + t.click_rate, 0) / trends.length
+  const avgBounce = trends.reduce((s, t) => s + t.bounce_rate, 0) / trends.length
+  const latestClick = trends[trends.length - 1].click_rate
 
-  function yPos(value: number): number {
-    return paddingTop + innerHeight - (value / yMax) * innerHeight
+  // SVG dimensions
+  const W = 600
+  const H = 200
+  const PL = 40
+  const PR = 16
+  const PT = 12
+  const PB = 28
+  const cw = W - PL - PR
+  const ch = H - PT - PB
+
+  const toX = (i: number) => PL + (i / (trends.length - 1)) * cw
+  const toY = (v: number) => PT + ch - ((v - yMin) / yRange) * ch
+
+  // Paths
+  const linePath = trends.map((t, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(t.click_rate).toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L${toX(trends.length - 1).toFixed(1)},${toY(yMin).toFixed(1)} L${toX(0).toFixed(1)},${toY(yMin).toFixed(1)} Z`
+
+  // Grid
+  const steps = [1, 2, 5, 10, 20, 25, 50]
+  const step = steps.find((s) => yRange / s <= 5) || 50
+  const gridLines: number[] = []
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) {
+    if (v > yMin) gridLines.push(v)
   }
 
-  const clickRates = trends.map((t) => t.click_rate)
-
-  // Grid lines
-  const gridStep = yMax <= 20 ? 5 : yMax <= 50 ? 10 : 20
-  const gridLines: number[] = []
-  for (let v = gridStep; v <= yMax; v += gridStep) gridLines.push(v)
-
-  const svgWidth = Math.max(trends.length * 60, 400)
+  const hoverData = hoverIdx !== null ? trends[hoverIdx] : null
+  const hoverDate = hoverData ? new Date(hoverData.sent_at).toLocaleDateString('de-CH', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
 
   return (
-    <div className="glass-card rounded-2xl p-6 shadow-lg">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
-          Engagement pro Newsletter
-        </h3>
-        <div className="flex items-center gap-4 text-xs">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
-            Klickrate
-          </span>
+    <div className="glass-card rounded-xl p-6 shadow-lg">
+      {/* Header */}
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
+            Engagement
+          </h3>
+          <div className="mt-1 flex items-baseline gap-3">
+            <span className="text-3xl font-bold text-[var(--text)]">{latestClick.toFixed(1)}%</span>
+            <span className="text-sm text-[var(--text-secondary)]">letzte Klickrate</span>
+          </div>
+        </div>
+        <div className="flex gap-4 text-xs text-[var(--text-secondary)]">
+          <div className="text-center">
+            <div className="text-lg font-semibold text-primary-600 dark:text-primary-400">{avgClick.toFixed(1)}%</div>
+            <div>Ø Klickrate</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg font-semibold text-red-500">{avgBounce.toFixed(1)}%</div>
+            <div>Ø Bounce</div>
+          </div>
         </div>
       </div>
-      <div className="overflow-x-auto">
+
+      {/* Area Chart */}
+      <div className="relative">
         <svg
-          viewBox={`0 0 ${svgWidth} ${chartHeight}`}
-          width={svgWidth}
-          height={chartHeight}
+          viewBox={`0 0 ${W} ${H}`}
           className="w-full"
-          style={{ minWidth: svgWidth }}
+          style={{ height: 'auto', maxHeight: 240 }}
+          onMouseLeave={() => setHoverIdx(null)}
         >
-          {/* Grid lines */}
+          <defs>
+            <linearGradient id="engagementGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-primary-500)" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="var(--color-primary-500)" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid */}
           {gridLines.map((v) => (
             <g key={v}>
               <line
-                x1={0}
-                y1={yPos(v)}
-                x2={svgWidth}
-                y2={yPos(v)}
-                stroke="currentColor"
-                className="text-[var(--text-secondary)]"
-                strokeDasharray="4 4"
-                opacity={0.15}
+                x1={PL} y1={toY(v)} x2={W - PR} y2={toY(v)}
+                stroke="var(--color-text-secondary, #888)" strokeWidth="0.5" opacity="0.15"
+                strokeDasharray="4 3"
               />
               <text
-                x={0}
-                y={yPos(v) - 4}
-                className="text-[var(--text-secondary)]"
-                fill="currentColor"
-                fontSize={10}
-                opacity={0.5}
+                x={PL - 6} y={toY(v) + 3}
+                textAnchor="end" fontSize="10" fill="var(--color-text-secondary, #888)" opacity="0.6"
               >
                 {v}%
               </text>
             </g>
           ))}
 
-          {/* Click rate line */}
-          <polyline
-            points={clickRates.map((v, i) => `${i * pointSpacing},${yPos(v)}`).join(' ')}
+          {/* X-axis labels */}
+          {trends.map((t, i) => {
+            const showLabel = trends.length <= 12 || i % Math.ceil(trends.length / 10) === 0 || i === trends.length - 1
+            if (!showLabel) return null
+            const d = new Date(t.sent_at)
+            const label = d.toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric' })
+            return (
+              <text
+                key={t.id}
+                x={toX(i)} y={H - 6}
+                textAnchor="middle" fontSize="10" fill="var(--color-text-secondary, #888)" opacity="0.6"
+              >
+                {label}
+              </text>
+            )
+          })}
+
+          {/* Area fill */}
+          <path d={areaPath} fill="url(#engagementGrad)" />
+
+          {/* Line */}
+          <path
+            d={linePath}
             fill="none"
-            stroke="#3b82f6"
-            strokeWidth={2}
+            stroke="var(--color-primary-500)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
 
-          {/* Interactive points + labels */}
-          {trends.map((t, i) => {
-            const x = i * pointSpacing
-            const dateLabel = new Date(t.sent_at).toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric' })
-            const isHovered = hoveredIdx === i
+          {/* Data points */}
+          {trends.map((t, i) => (
+            <circle
+              key={t.id}
+              cx={toX(i)} cy={toY(t.click_rate)}
+              r={hoverIdx === i ? 5 : 3}
+              fill="var(--color-primary-500)"
+              stroke="var(--color-bg, #fff)" strokeWidth="2"
+              className="transition-all duration-150"
+            />
+          ))}
 
+          {/* Hover zones */}
+          {trends.map((_, i) => {
+            const x0 = i === 0 ? PL : (toX(i - 1) + toX(i)) / 2
+            const x1 = i === trends.length - 1 ? W - PR : (toX(i) + toX(i + 1)) / 2
             return (
-              <g key={t.id}>
-                {/* Hover area */}
-                <rect
-                  x={x - pointSpacing / 2}
-                  y={0}
-                  width={pointSpacing}
-                  height={chartHeight}
-                  fill="transparent"
-                  onMouseEnter={() => setHoveredIdx(i)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                />
-
-                {/* Vertical guide on hover */}
-                {isHovered && (
-                  <line
-                    x1={x}
-                    y1={paddingTop}
-                    x2={x}
-                    y2={chartHeight - paddingBottom}
-                    stroke="currentColor"
-                    className="text-[var(--text-secondary)]"
-                    strokeDasharray="2 2"
-                    opacity={0.3}
-                  />
-                )}
-
-                {/* Points */}
-                <circle cx={x} cy={yPos(t.click_rate)} r={isHovered ? 5 : 3} fill="#3b82f6" />
-
-                {/* X-axis label */}
-                <text
-                  x={x}
-                  y={chartHeight - 8}
-                  textAnchor="middle"
-                  fill="currentColor"
-                  className="text-[var(--text-secondary)]"
-                  fontSize={10}
-                  opacity={0.6}
-                >
-                  {dateLabel}
-                </text>
-
-                {/* Tooltip */}
-                {isHovered && (
-                  <g>
-                    <rect
-                      x={x - 80}
-                      y={paddingTop - 14}
-                      width={160}
-                      height={40}
-                      rx={8}
-                      fill="var(--bg)"
-                      stroke="var(--border)"
-                      strokeWidth={1}
-                      opacity={0.95}
-                    />
-                    <text x={x} y={paddingTop + 2} textAnchor="middle" fontSize={10} fontWeight={600} fill="var(--text)">
-                      {t.subject.length > 28 ? t.subject.slice(0, 28) + '…' : t.subject}
-                    </text>
-                    <text x={x} y={paddingTop + 16} textAnchor="middle" fontSize={10} fill="#3b82f6">
-                      Klickrate: {t.click_rate}% · {t.recipient_count} Empfänger
-                    </text>
-                  </g>
-                )}
-              </g>
+              <rect
+                key={i}
+                x={x0} y={PT} width={x1 - x0} height={ch}
+                fill="transparent"
+                onMouseEnter={() => setHoverIdx(i)}
+                style={{ cursor: 'crosshair' }}
+              />
             )
           })}
+
+          {/* Hover vertical line */}
+          {hoverIdx !== null && (
+            <line
+              x1={toX(hoverIdx)} y1={PT} x2={toX(hoverIdx)} y2={PT + ch}
+              stroke="var(--color-primary-500)" strokeWidth="1" opacity="0.3"
+              strokeDasharray="3 2"
+            />
+          )}
         </svg>
+
+        {/* Tooltip */}
+        {hoverData && hoverIdx !== null && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 shadow-lg"
+            style={{
+              left: `${(toX(hoverIdx) / W) * 100}%`,
+              top: 0,
+              transform: `translateX(${hoverIdx > trends.length / 2 ? '-100%' : '0'})`,
+            }}
+          >
+            <div className="text-xs font-medium text-[var(--text)] truncate" style={{ maxWidth: 200 }}>
+              {hoverData.subject}
+            </div>
+            <div className="mt-0.5 text-[10px] text-[var(--text-secondary)]">{hoverDate} · {hoverData.recipient_count} Empfänger</div>
+            <div className="mt-1 text-xs">
+              <span className="text-primary-600 dark:text-primary-400 font-semibold">{hoverData.click_rate}% Klickrate</span>
+            </div>
+            {hoverData.bounce_rate > 0 && (
+              <div className="text-xs text-red-500">{hoverData.bounce_rate}% Bounce</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+type GrowthRange = '6m' | '12m' | 'all'
+
 function SubscriberGrowthChart({ data }: { data: SubscriberGrowth[] }) {
+  const [range, setRange] = useState<GrowthRange>('12m')
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+
   if (data.length < 2) return null
 
-  const max = Math.max(...data.map((d) => d.total), 1)
-  const steps = [5, 10, 25, 50, 100, 250, 500, 1000]
-  const step = steps.find((s) => max / s <= 5) || 2500
-  const gridLines: number[] = []
-  for (let v = step; v <= max; v += step) gridLines.push(v)
+  const filtered = range === 'all' ? data : data.slice(-(range === '6m' ? 6 : 12))
+  const totals = filtered.map((d) => d.total)
+  const dataMax = Math.max(...totals)
+  const dataMin = Math.min(...totals)
+  const padding = Math.max(Math.ceil((dataMax - dataMin) * 0.2), 2)
+  const yMin = Math.max(dataMin - padding, 0)
+  const yMax = dataMax + padding
+  const yRange = yMax - yMin || 1
 
-  const chartHeight = 140
+  const netChange = filtered[filtered.length - 1].total - filtered[0].total
+  const totalNew = filtered.reduce((sum, d) => sum + d.new_count, 0)
+  const totalUnsub = totalNew - netChange
+  const current = filtered[filtered.length - 1].total
+
+  // SVG dimensions
+  const W = 600
+  const H = 200
+  const PL = 40 // padding left
+  const PR = 16
+  const PT = 12
+  const PB = 28
+  const cw = W - PL - PR
+  const ch = H - PT - PB
+
+  const toX = (i: number) => PL + (i / (filtered.length - 1)) * cw
+  const toY = (v: number) => PT + ch - ((v - yMin) / yRange) * ch
+
+  // Build line path
+  const linePath = filtered.map((d, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(d.total).toFixed(1)}`).join(' ')
+  // Build area path (closed to bottom)
+  const areaPath = `${linePath} L${toX(filtered.length - 1).toFixed(1)},${toY(yMin).toFixed(1)} L${toX(0).toFixed(1)},${toY(yMin).toFixed(1)} Z`
+
+  // Grid lines
+  const steps = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000]
+  const step = steps.find((s) => yRange / s <= 5) || 2500
+  const gridLines: number[] = []
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) {
+    if (v > yMin) gridLines.push(v)
+  }
+
+  const rangeButtons: { key: GrowthRange; label: string }[] = [
+    { key: '6m', label: '6M' },
+    { key: '12m', label: '1J' },
+    { key: 'all', label: 'Alle' },
+  ]
+
+  const hoverData = hoverIdx !== null ? filtered[hoverIdx] : null
+  const hoverLabel = hoverData ? (() => {
+    const [y, m] = hoverData.month.split('-')
+    return `${MONTH_LABELS[m] || m} ${y}`
+  })() : ''
 
   return (
-    <div className="glass-card rounded-2xl p-6 shadow-lg">
-      <h3 className="mb-4 text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
-        Abonnenten-Wachstum
-      </h3>
-      <div style={{ position: 'relative', height: chartHeight, paddingLeft: 36, marginTop: 20 }}>
-        {/* Grid lines */}
-        {gridLines.map((v) => (
-          <div
-            key={v}
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: `${(v / max) * ((chartHeight - 20) / chartHeight) * 100}%`,
-            }}
-          >
-            <span
-              className="text-[var(--text-secondary)]"
-              style={{ position: 'absolute', left: 0, top: -6, fontSize: 10, opacity: 0.5, lineHeight: 1 }}
-            >
-              {v}
+    <div className="glass-card rounded-xl p-6 shadow-lg">
+      {/* Header: KPIs + Range Toggle */}
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
+            Abonnenten
+          </h3>
+          <div className="mt-1 flex items-baseline gap-3">
+            <span className="text-3xl font-bold text-[var(--text)]">{current}</span>
+            <span className={`text-sm font-semibold ${netChange >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+              {netChange >= 0 ? '+' : ''}{netChange}
             </span>
-            <div
-              style={{ marginLeft: 36, borderTop: '1px dashed', opacity: 0.2 }}
-              className="text-[var(--text-secondary)]"
-            />
           </div>
-        ))}
-        {/* Bars */}
-        <div className="flex items-end gap-2 sm:gap-3" style={{ position: 'relative', zIndex: 1, height: '100%' }}>
-          {data.map(({ month, total, new_count }) => {
-            const [year, m] = month.split('-')
-            const label = `${MONTH_LABELS[m] || m} ${year.slice(2)}`
-            const barHeight = Math.max(Math.round((total / max) * (chartHeight - 20)), 4)
-
-            return (
-              <div
-                key={month}
-                className="group flex flex-col items-center gap-1"
-                style={{ flex: '1 1 0', minWidth: 32, maxWidth: 64, alignSelf: 'flex-end' }}
-                title={`${label}: ${total} total (+${new_count} neu)`}
+        </div>
+        <div className="flex items-center gap-5">
+          <div className="flex gap-4 text-xs text-[var(--text-secondary)]">
+            <div className="text-center">
+              <div className="text-lg font-semibold text-primary-600 dark:text-primary-400">+{totalNew}</div>
+              <div>Neu</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-semibold text-red-500">-{totalUnsub}</div>
+              <div>Abgemeldet</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-semibold text-[var(--text)]">{(totalNew / filtered.length).toFixed(1)}</div>
+              <div>Ø Neu/Mt.</div>
+            </div>
+          </div>
+          <div className="flex rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]">
+            {rangeButtons.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setRange(key)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  range === key
+                    ? 'bg-primary-500 text-white rounded-lg shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text)]'
+                }`}
               >
-                <span className="text-[10px] font-medium text-[var(--text-secondary)]">
-                  {total}
-                </span>
-                <div className="relative w-full">
-                  <div
-                    className="w-full rounded-t bg-primary-500/80 dark:bg-primary-400/80"
-                    style={{ height: barHeight }}
-                  />
-                  {new_count > 0 && (
-                    <div
-                      className="absolute bottom-0 w-full rounded-t bg-primary-600 dark:bg-primary-300"
-                      style={{ height: Math.max(Math.round((new_count / max) * (chartHeight - 20)), 2) }}
-                    />
-                  )}
-                </div>
-                <span className="text-[10px] text-[var(--text-secondary)]">{label}</span>
-              </div>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Area Chart */}
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full"
+          style={{ height: 'auto', maxHeight: 240 }}
+          onMouseLeave={() => setHoverIdx(null)}
+        >
+          <defs>
+            <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-primary-500)" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="var(--color-primary-500)" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid */}
+          {gridLines.map((v) => (
+            <g key={v}>
+              <line
+                x1={PL} y1={toY(v)} x2={W - PR} y2={toY(v)}
+                stroke="var(--color-text-secondary, #888)" strokeWidth="0.5" opacity="0.15"
+                strokeDasharray="4 3"
+              />
+              <text
+                x={PL - 6} y={toY(v) + 3}
+                textAnchor="end" fontSize="10" fill="var(--color-text-secondary, #888)" opacity="0.6"
+              >
+                {v}
+              </text>
+            </g>
+          ))}
+
+          {/* X-axis labels */}
+          {filtered.map((d, i) => {
+            const [y, m] = d.month.split('-')
+            const showLabel = filtered.length <= 12 || i % Math.ceil(filtered.length / 12) === 0 || i === filtered.length - 1
+            if (!showLabel) return null
+            return (
+              <text
+                key={d.month}
+                x={toX(i)} y={H - 6}
+                textAnchor="middle" fontSize="10" fill="var(--color-text-secondary, #888)" opacity="0.6"
+              >
+                {MONTH_LABELS[m] || m} {y.slice(2)}
+              </text>
             )
           })}
-        </div>
+
+          {/* Area fill */}
+          <path d={areaPath} fill="url(#areaGrad)" />
+
+          {/* Line */}
+          <path
+            d={linePath}
+            fill="none"
+            stroke="var(--color-primary-500)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Data points */}
+          {filtered.map((d, i) => (
+            <circle
+              key={d.month}
+              cx={toX(i)} cy={toY(d.total)}
+              r={hoverIdx === i ? 5 : 3}
+              fill={hoverIdx === i ? 'var(--color-primary-600)' : 'var(--color-primary-500)'}
+              stroke="var(--color-bg, #fff)" strokeWidth="2"
+              className="transition-all duration-150"
+            />
+          ))}
+
+          {/* Hover zones (invisible rects for each data point) */}
+          {filtered.map((_, i) => {
+            const x0 = i === 0 ? PL : (toX(i - 1) + toX(i)) / 2
+            const x1 = i === filtered.length - 1 ? W - PR : (toX(i) + toX(i + 1)) / 2
+            return (
+              <rect
+                key={i}
+                x={x0} y={PT} width={x1 - x0} height={ch}
+                fill="transparent"
+                onMouseEnter={() => setHoverIdx(i)}
+                style={{ cursor: 'crosshair' }}
+              />
+            )
+          })}
+
+          {/* Hover vertical line */}
+          {hoverIdx !== null && (
+            <line
+              x1={toX(hoverIdx)} y1={PT} x2={toX(hoverIdx)} y2={PT + ch}
+              stroke="var(--color-primary-500)" strokeWidth="1" opacity="0.3"
+              strokeDasharray="3 2"
+            />
+          )}
+        </svg>
+
+        {/* Tooltip */}
+        {hoverData && hoverIdx !== null && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 shadow-lg"
+            style={{
+              left: `${(toX(hoverIdx) / W) * 100}%`,
+              top: 0,
+              transform: `translateX(${hoverIdx > filtered.length / 2 ? '-100%' : '0'})`,
+            }}
+          >
+            <div className="text-xs font-medium text-[var(--text)]">{hoverLabel}</div>
+            <div className="mt-1 text-sm font-bold text-[var(--text)]">{hoverData.total} Abonnenten</div>
+            {hoverData.new_count > 0 && (
+              <div className="text-xs text-primary-600 dark:text-primary-400">+{hoverData.new_count} neu</div>
+            )}
+            {hoverIdx > 0 && (
+              <div className={`text-xs ${hoverData.total >= filtered[hoverIdx - 1].total ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                {hoverData.total >= filtered[hoverIdx - 1].total ? '+' : ''}{hoverData.total - filtered[hoverIdx - 1].total} netto
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1097,6 +1475,23 @@ export default function AdminNewsletter() {
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
   const [sends, setSends] = useState<NewsletterSend[]>([])
   const [posts, setPosts] = useState<Post[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [darkMode, setDarkMode] = useState(false)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('newsletter-dark-mode')
+    if (saved === 'true') {
+      setDarkMode(true)
+      document.documentElement.classList.add('dark')
+    }
+  }, [])
+
+  function toggleDarkMode() {
+    const next = !darkMode
+    setDarkMode(next)
+    document.documentElement.classList.toggle('dark', next)
+    localStorage.setItem('newsletter-dark-mode', String(next))
+  }
 
   // Compose state
   const [composeMode, setComposeMode] = useState<ComposeMode>('pick-template')
@@ -1123,6 +1518,7 @@ export default function AdminNewsletter() {
   const [selectedSend, setSelectedSend] = useState<NewsletterSend | null>(null)
   const [sendRecipients, setSendRecipients] = useState<NewsletterRecipientRow[]>([])
   const [sendLinkClicks, setSendLinkClicks] = useState<LinkClickRow[]>([])
+  const [sendBlocksJson, setSendBlocksJson] = useState<string | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryConfirm, setRetryConfirm] = useState(false)
@@ -1179,6 +1575,7 @@ export default function AdminNewsletter() {
       const json = await res.json()
       setSendRecipients(json.sendDetail?.recipients ?? [])
       setSendLinkClicks(json.sendDetail?.linkClicks ?? [])
+      setSendBlocksJson(json.sendDetail?.blocksJson ?? null)
     } catch (err) {
       console.error('Failed to load send detail:', err)
     }
@@ -1223,7 +1620,7 @@ export default function AdminNewsletter() {
   }
 
   async function handleRetryFailed(send: NewsletterSend) {
-    const failedCount = sendRecipients.filter((r) => !r.resend_email_id).length
+    const failedCount = sendRecipients.filter((r) => r.status === 'sent').length
     if (failedCount === 0) {
       setToast({ type: 'info', message: 'Keine fehlgeschlagenen Empfänger.' })
       return
@@ -1529,64 +1926,128 @@ export default function AdminNewsletter() {
   }
 
   if (phase === 'checking') {
-    return <div className="py-12 text-center text-[var(--text-secondary)]">Laden…</div>
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--border)] border-t-primary-500" />
+          <p className="text-sm text-[var(--text-muted)]">Laden…</p>
+        </div>
+      </div>
+    )
   }
 
   if (phase === 'login') {
-    return <LoginForm onLogin={loadData} />
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <LoginForm onLogin={loadData} />
+      </div>
+    )
   }
 
-  const tabCls = (t: Tab) =>
-    `rounded-full px-5 py-2 text-sm font-medium transition-colors ${
-      tab === t
-        ? 'bg-primary-700text-white'
-        : 'border border-slate-300 text-[var(--text-secondary)] hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800'
-    }`
+  const sidebarItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    {
+      id: 'compose', label: 'Erstellen',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>,
+    },
+    {
+      id: 'subscribers', label: 'Abonnenten',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77M12 15.07a5.98 5.98 0 00-1.654-.76M15 19.128H5.228A2 2 0 013 17.16V17" /></svg>,
+    },
+    {
+      id: 'history', label: 'Historie',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>,
+    },
+    {
+      id: 'settings', label: 'Settings',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+    },
+    {
+      id: 'automations', label: 'Automation',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>,
+    },
+  ]
 
   const postsMap = buildPostsMap(blocks, posts)
 
   return (
-    <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="glass-card rounded-2xl p-5 text-center">
-          <div className="text-3xl font-bold text-primary-500">{confirmedCount}</div>
-          <div className="mt-1 text-xs text-[var(--text-secondary)]">Bestätigt</div>
-        </div>
-        <div className="glass-card rounded-2xl p-5 text-center">
-          <div className="text-3xl font-bold text-amber-500">
-            {subscribers.filter((s) => s.status === 'pending').length}
-          </div>
-          <div className="mt-1 text-xs text-[var(--text-secondary)]">Ausstehend</div>
-        </div>
-        <div className="glass-card rounded-2xl p-5 text-center">
-          <div className="text-3xl font-bold text-slate-400">{sends.length}</div>
-          <div className="mt-1 text-xs text-[var(--text-secondary)]">Versendet</div>
-        </div>
-      </div>
+    <div className="flex h-screen">
+      {/* ── Sidebar ──────────────────────────────────── */}
+      <nav className={`glass-sidebar flex shrink-0 flex-col py-4 ${sidebarOpen ? 'expanded' : ''}`} style={{ width: sidebarOpen ? 180 : 56 }}>
+        {/* Toggle button */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', background: 'none', border: 'none', cursor: 'pointer', margin: '0 auto 20px', transition: 'color 0.1s' }}
+          title={sidebarOpen ? 'Sidebar einklappen' : 'Sidebar ausklappen'}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            {sidebarOpen
+              ? <path d="M10 3L5 8l5 5" strokeLinecap="round" strokeLinejoin="round" />
+              : <path d="M6 3l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+            }
+          </svg>
+        </button>
 
-      {/* Tabs */}
-      <div className="flex gap-2">
-        <button onClick={() => setTab('compose')} className={tabCls('compose')}>
-          Newsletter erstellen
-        </button>
-        <button onClick={() => setTab('subscribers')} className={tabCls('subscribers')}>
-          Abonnenten ({subscribers.length})
-        </button>
-        <button onClick={() => setTab('history')} className={tabCls('history')}>
-          Versand-Historie
-        </button>
-        <button onClick={() => { setTab('settings'); if (!promptsLoaded) loadPrompts() }} className={tabCls('settings')}>
-          Einstellungen
-        </button>
-        <button onClick={() => setTab('automations')} className={tabCls('automations')}>
-          Automatisierung
-        </button>
-      </div>
+        {/* Nav Items */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
+          {sidebarItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => { setTab(item.id); if (item.id === 'settings' && !promptsLoaded) loadPrompts() }}
+              className={`sidebar-icon${tab === item.id ? ' active' : ''}`}
+              title={!sidebarOpen ? item.label : undefined}
+            >
+              {item.icon}
+              <span className="sidebar-label">{item.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Bottom: Dark mode toggle */}
+        <div style={{ marginTop: 'auto', padding: '0 8px' }}>
+          <button
+            onClick={toggleDarkMode}
+            className="sidebar-icon"
+            title={darkMode ? 'Light Mode' : 'Dark Mode'}
+            style={{ width: sidebarOpen ? '100%' : 40, justifyContent: sidebarOpen ? 'flex-start' : 'center', padding: sidebarOpen ? '0 12px' : 0, gap: sidebarOpen ? 10 : 0 }}
+          >
+            {darkMode ? (
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+              </svg>
+            ) : (
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+              </svg>
+            )}
+            {sidebarOpen && <span className="sidebar-label" style={{ display: 'block', opacity: 1 }}>{darkMode ? 'Light' : 'Dark'}</span>}
+          </button>
+        </div>
+      </nav>
+
+      {/* ── Main Content ─────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-[1100px] space-y-6 p-6">
+          {/* Stats — editorial oversized numbers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '2px solid var(--foreground)', paddingBottom: 32, marginBottom: 8 }}>
+            <div className="animate-fade-in-up">
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--color-primary)' }}>{confirmedCount}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Bestätigt</div>
+            </div>
+            <div className="animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
+                {subscribers.filter((s) => s.status === 'pending').length}
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Ausstehend</div>
+            </div>
+            <div className="animate-fade-in-up" style={{ animationDelay: '120ms' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>{sends.length}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Versendet</div>
+            </div>
+          </div>
 
       {/* --- Compose Tab ------------------------------------------- */}
       {tab === 'compose' && (
-        <div className="glass-card space-y-5 rounded-2xl p-6">
+        <div className="glass-card space-y-5 rounded-xl p-6">
           {/* Mode: Pick Template */}
           {composeMode === 'pick-template' && (
             <div className="space-y-6">
@@ -1602,9 +2063,9 @@ export default function AdminNewsletter() {
               {(customTemplates.length > 0) && (
                 <div>
                   <div className="mb-3 flex items-center gap-3">
-                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                    <div className="h-px flex-1 bg-[var(--border)]" />
                     <span className="text-xs font-medium text-[var(--text-secondary)]">Eigene Templates</span>
-                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                    <div className="h-px flex-1 bg-[var(--border)]" />
                   </div>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {customTemplates.map((t) => (
@@ -1622,15 +2083,15 @@ export default function AdminNewsletter() {
               {drafts.length > 0 && (
                 <div>
                   <div className="mb-3 flex items-center gap-3">
-                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                    <div className="h-px flex-1 bg-[var(--border)]" />
                     <span className="text-xs font-medium text-[var(--text-secondary)]">Gespeicherte Entwürfe</span>
-                    <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                    <div className="h-px flex-1 bg-[var(--border)]" />
                   </div>
                   <div className="space-y-2">
                     {drafts.map((d) => (
                       <div
                         key={d.id}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white/60 px-4 py-3 transition-colors hover:border-primary-300 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:border-primary-600"
+                        className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background-card)] px-4 py-3 transition-colors hover:border-primary-300 "
                       >
                         <button
                           onClick={() => handleLoadDraft(d)}
@@ -1657,7 +2118,7 @@ export default function AdminNewsletter() {
 
               <button
                 onClick={() => setComposeMode('build-template')}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-4 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50/50 hover:text-primary-600 dark:border-slate-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-4 py-4 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50/50 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
               >
                 <span className="text-lg">+</span> Neues Template erstellen
               </button>
@@ -1683,7 +2144,7 @@ export default function AdminNewsletter() {
                 </h3>
                 <button
                   onClick={goBackToPicker}
-                  className="rounded-full border border-slate-300 px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-full border border-[var(--border)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
                 >
                   &larr; Andere wählen
                 </button>
@@ -1702,7 +2163,7 @@ export default function AdminNewsletter() {
                   <button
                     onClick={generateSubject}
                     disabled={generatingSubject || blocks.length === 0}
-                    className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
                   >
                     {generatingSubject ? (
                       <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -1735,7 +2196,7 @@ export default function AdminNewsletter() {
 
                 {/* Right: Draggable article list */}
                 <div className="lg:sticky lg:top-4 lg:self-start">
-                  <div className="rounded-xl border border-slate-200 bg-white/50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--background-card)] p-3">
                     <h4 className="mb-3 text-xs font-semibold text-[var(--text-secondary)]">
                       Artikel (Drag &amp; Drop)
                     </h4>
@@ -1756,14 +2217,14 @@ export default function AdminNewsletter() {
                 <button
                   onClick={handleSaveDraft}
                   disabled={blocks.length === 0}
-                  className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-full border border-[var(--border)] px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
                 >
                   Entwurf speichern
                 </button>
                 <button
                   onClick={() => setShowPreview(true)}
                   disabled={!blocksAreValid(blocks)}
-                  className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-full border border-[var(--border)] px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
                 >
                   Vorschau
                 </button>
@@ -1777,7 +2238,7 @@ export default function AdminNewsletter() {
                 <button
                   onClick={handleSendClick}
                   disabled={sending || !canSend}
-                  className="flex-1 rounded-full bg-primary-700px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-800 hover:shadow-md disabled:opacity-50"
+                  className="flex-1 rounded-full bg-primary-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-700 hover:shadow-md disabled:opacity-50"
                 >
                   {sending
                     ? 'Wird versendet…'
@@ -1801,42 +2262,47 @@ export default function AdminNewsletter() {
 
       {/* --- Subscribers Tab --------------------------------------- */}
       {tab === 'subscribers' && (
-        <div className="glass-card overflow-hidden rounded-2xl">
+        <div className="glass-card overflow-hidden rounded-xl">
           {subscribers.length === 0 ? (
-            <div className="px-6 py-12 text-center text-[var(--text-secondary)]">
-              Noch keine Abonnenten.
+            <div className="px-6 py-16 text-center">
+              <svg className="mx-auto h-10 w-10 text-[var(--text-secondary)] opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77A5.98 5.98 0 0112 15.07m3 4.058a6.042 6.042 0 00-.786-3.07M12 15.07a5.98 5.98 0 00-1.654-.76M12 15.07V12m0 0a3 3 0 10-5.696-1.34" />
+              </svg>
+              <p className="mt-3 text-sm text-[var(--text-secondary)]">Noch keine Abonnenten.</p>
             </div>
           ) : (
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">E-Mail</th>
-                  <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Status</th>
-                  <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Datum</th>
+                <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">E-Mail</th>
+                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Status</th>
+                  <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Datum</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody>
-                {subscribers.map((s) => {
+                {subscribers.map((s, i) => {
                   const badge = statusBadge[s.status] || statusBadge.pending
                   return (
                     <tr
                       key={s.id}
-                      className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                      className={`border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--bg-secondary)] ${
+                        i % 2 === 0 ? '' : 'bg-[var(--bg-secondary)]/50'
+                      }`}
                     >
-                      <td className="px-5 py-3 text-[var(--text)]">{s.email}</td>
+                      <td className="px-5 py-3 font-medium text-[var(--text)]">{s.email}</td>
                       <td className="px-5 py-3">
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.cls}`}>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.cls}`}>
                           {badge.label}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-[var(--text-secondary)]">
-                        {formatDate(s.created_at)}
+                        {formatDate(s.createdAt)}
                       </td>
                       <td className="px-5 py-3 text-right">
                         <button
                           onClick={() => handleDeleteSubscriber(s.id)}
-                          className="text-xs text-red-500 hover:text-red-700"
+                          className="rounded-md px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/20"
                         >
                           Löschen
                         </button>
@@ -1855,26 +2321,20 @@ export default function AdminNewsletter() {
         <div className="space-y-6">
           {/* KPI Dashboard */}
           {overallStats && overallStats.total_sends > 0 && (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <div className="glass-card rounded-2xl p-5 text-center">
-                <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {overallStats.avg_open_rate}%
-                </div>
-                <div className="mt-1 text-xs text-[var(--text-secondary)]">Ø Öffnungsrate</div>
-              </div>
-              <div className="glass-card rounded-2xl p-5 text-center">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="glass-card rounded-xl p-5 text-center">
                 <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                   {overallStats.avg_click_rate}%
                 </div>
                 <div className="mt-1 text-xs text-[var(--text-secondary)]">Ø Klickrate</div>
               </div>
-              <div className="glass-card rounded-2xl p-5 text-center">
+              <div className="glass-card rounded-xl p-5 text-center">
                 <div className={`text-2xl font-bold ${overallStats.avg_bounce_rate > 2 ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
                   {overallStats.avg_bounce_rate}%
                 </div>
                 <div className="mt-1 text-xs text-[var(--text-secondary)]">Ø Bounce-Rate</div>
               </div>
-              <div className="glass-card rounded-2xl p-5 text-center">
+              <div className="glass-card rounded-xl p-5 text-center">
                 <div className={`text-2xl font-bold ${overallStats.total_complaints > 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
                   {overallStats.total_complaints}
                 </div>
@@ -1895,13 +2355,13 @@ export default function AdminNewsletter() {
           {selectedSend ? (
             <div className="space-y-6">
               <button
-                onClick={() => { setSelectedSend(null); setSendRecipients([]); setSendLinkClicks([]) }}
+                onClick={() => { setSelectedSend(null); setSendRecipients([]); setSendLinkClicks([]); setSendBlocksJson(null) }}
                 className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors"
               >
                 <span>←</span> Zurück zur Übersicht
               </button>
 
-              <div className="glass-card rounded-2xl p-5">
+              <div className="glass-card rounded-xl p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-semibold text-[var(--text)]">{selectedSend.subject}</h3>
@@ -1909,51 +2369,50 @@ export default function AdminNewsletter() {
                       {formatDate(selectedSend.sent_at)} · {selectedSend.recipient_count} Empfänger
                     </div>
                   </div>
-                  {!loadingDetail && sendRecipients.filter((r) => !r.resend_email_id).length > 0 && (
-                    <div className="flex items-center gap-2 shrink-0">
-                      {retryConfirm && !retrying && (
+                  {(() => {
+                    const failedRecipients = sendRecipients.filter((r) => r.status === 'sent')
+                    return !loadingDetail && failedRecipients.length > 0 && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        {retryConfirm && !retrying && (
+                          <button
+                            onClick={() => setRetryConfirm(false)}
+                            className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                          >
+                            Abbrechen
+                          </button>
+                        )}
                         <button
-                          onClick={() => setRetryConfirm(false)}
-                          className="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                          onClick={() => handleRetryFailed(selectedSend)}
+                          disabled={retrying}
+                          className={`rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 transition-colors ${retryConfirm ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
                         >
-                          Abbrechen
+                          {retrying
+                            ? 'Wird gesendet…'
+                            : retryConfirm
+                              ? `Jetzt ${failedRecipients.length} Emails senden?`
+                              : `${failedRecipients.length} fehlgeschlagene nochmal senden`}
                         </button>
-                      )}
-                      <button
-                        onClick={() => handleRetryFailed(selectedSend)}
-                        disabled={retrying}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 transition-colors ${retryConfirm ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
-                      >
-                        {retrying
-                          ? 'Wird gesendet…'
-                          : retryConfirm
-                            ? `Jetzt ${sendRecipients.filter((r) => !r.resend_email_id).length} Emails senden?`
-                            : `${sendRecipients.filter((r) => !r.resend_email_id).length} fehlgeschlagene nochmal senden`}
-                      </button>
-                    </div>
-                  )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
 
               {loadingDetail ? (
-                <div className="glass-card rounded-2xl p-6 text-center text-[var(--text-secondary)]">Laden…</div>
+                <div className="glass-card rounded-xl p-6 text-center text-[var(--text-secondary)]">Laden…</div>
               ) : (
                 <>
                   {/* Summary Cards */}
-                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                    <div className="glass-card rounded-2xl p-4 text-center">
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    <div className="glass-card rounded-xl p-4 text-center">
                       <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedSend.delivered_count ?? 0}</div>
                       <div className="mt-1 text-xs text-[var(--text-secondary)]">Zugestellt</div>
                     </div>
-                    <div className="glass-card rounded-2xl p-4 text-center">
-                      <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{selectedSend.opened_count ?? 0}</div>
-                      <div className="mt-1 text-xs text-[var(--text-secondary)]">Geöffnet</div>
-                    </div>
-                    <div className="glass-card rounded-2xl p-4 text-center">
+                    <div className="glass-card rounded-xl p-4 text-center">
                       <div className="text-xl font-bold text-green-600 dark:text-green-400">{selectedSend.clicked_count ?? 0}</div>
                       <div className="mt-1 text-xs text-[var(--text-secondary)]">Geklickt</div>
                     </div>
-                    <div className="glass-card rounded-2xl p-4 text-center">
+                    <div className="glass-card rounded-xl p-4 text-center">
                       <div className={`text-xl font-bold ${(selectedSend.bounced_count ?? 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>
                         {selectedSend.bounced_count ?? 0}
                       </div>
@@ -1963,13 +2422,13 @@ export default function AdminNewsletter() {
 
                   {/* Link Performance */}
                   {sendLinkClicks.length > 0 && (
-                    <div className="glass-card overflow-hidden rounded-2xl">
-                      <div className="border-b border-slate-200 px-5 py-3 dark:border-slate-700">
+                    <div className="glass-card overflow-hidden rounded-xl">
+                      <div className="border-b border-[var(--border)] px-5 py-3">
                         <h4 className="font-medium text-[var(--text)]">Link-Performance</h4>
                       </div>
                       <table className="w-full text-left text-sm">
                         <thead>
-                          <tr className="border-b border-slate-200 dark:border-slate-700">
+                          <tr className="border-b border-[var(--border)]">
                             <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">URL</th>
                             <th className="px-5 py-3 font-medium text-[var(--text-secondary)] text-right">Klicks</th>
                             <th className="px-5 py-3 font-medium text-[var(--text-secondary)] text-right">Eindeutig</th>
@@ -1977,7 +2436,7 @@ export default function AdminNewsletter() {
                         </thead>
                         <tbody>
                           {sendLinkClicks.map((lc, i) => (
-                            <tr key={i} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                            <tr key={i} className="border-b border-[var(--border)] last:border-0">
                               <td className="px-5 py-3 text-[var(--text)]">
                                 <span className="block max-w-xs truncate" title={lc.url}>
                                   {lc.url.length > 60 ? lc.url.substring(0, 57) + '…' : lc.url}
@@ -1992,20 +2451,44 @@ export default function AdminNewsletter() {
                     </div>
                   )}
 
+                  {/* Click Heatmap */}
+                  {sendLinkClicks.length > 0 && (() => {
+                    let html: string | null = null
+                    if (sendBlocksJson) {
+                      try {
+                        const blocks = JSON.parse(sendBlocksJson) as NewsletterBlock[]
+                        const postsMap: Record<string, PostRef> = {}
+                        for (const p of posts) postsMap[p.slug] = p
+                        html = buildMultiBlockNewsletterHtml(PREVIEW_SITE_CONFIG, blocks, postsMap, '#')
+                      } catch { /* fallback to list */ }
+                    }
+                    return html ? (
+                      <ClickHeatmap
+                        html={html}
+                        linkClicks={sendLinkClicks}
+                        recipientCount={selectedSend.recipient_count}
+                      />
+                    ) : (
+                      <ClickHeatmapList
+                        linkClicks={sendLinkClicks}
+                        recipientCount={selectedSend.recipient_count}
+                      />
+                    )
+                  })()}
+
                   {/* Recipients Table */}
                   {sendRecipients.length > 0 && (
-                    <div className="glass-card overflow-hidden rounded-2xl">
-                      <div className="border-b border-slate-200 px-5 py-3 dark:border-slate-700">
+                    <div className="glass-card overflow-hidden rounded-xl">
+                      <div className="border-b border-[var(--border)] px-5 py-3">
                         <h4 className="font-medium text-[var(--text)]">Empfänger ({sendRecipients.length})</h4>
                       </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
-                            <tr className="border-b border-slate-200 dark:border-slate-700">
+                            <tr className="border-b border-[var(--border)]">
                               <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">E-Mail</th>
                               <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Status</th>
                               <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Zugestellt</th>
-                              <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Geöffnet</th>
                               <th className="px-5 py-3 font-medium text-[var(--text-secondary)] text-right">Klicks</th>
                               <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Bounce</th>
                             </tr>
@@ -2013,16 +2496,15 @@ export default function AdminNewsletter() {
                           <tbody>
                             {sendRecipients.map((r) => {
                               const recipientBadge: Record<string, { label: string; cls: string }> = {
-                                sent: { label: 'Gesendet', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+                                sent: { label: 'Gesendet', cls: 'bg-[var(--bg-secondary)] text-[var(--text-muted)]' },
                                 delivered: { label: 'Zugestellt', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300' },
-                                opened: { label: 'Geöffnet', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' },
                                 clicked: { label: 'Geklickt', cls: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300' },
                                 bounced: { label: 'Bounced', cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300' },
                                 complained: { label: 'Beschwerde', cls: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300' },
                               }
                               const badge = recipientBadge[r.status] || recipientBadge.sent
                               return (
-                                <tr key={r.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                <tr key={r.id} className="border-b border-[var(--border)] last:border-0">
                                   <td className="px-5 py-3 text-[var(--text)]">{r.email}</td>
                                   <td className="px-5 py-3">
                                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
@@ -2031,9 +2513,6 @@ export default function AdminNewsletter() {
                                   </td>
                                   <td className="px-5 py-3 text-[var(--text-secondary)]">
                                     {r.delivered_at ? formatDate(r.delivered_at) : '—'}
-                                  </td>
-                                  <td className="px-5 py-3 text-[var(--text-secondary)]">
-                                    {r.opened_at ? `${formatDate(r.opened_at)}${r.open_count > 1 ? ` (${r.open_count}×)` : ''}` : '—'}
                                   </td>
                                   <td className="px-5 py-3 text-right text-[var(--text)]">
                                     {r.click_count > 0 ? r.click_count : '—'}
@@ -2054,7 +2533,7 @@ export default function AdminNewsletter() {
             </div>
           ) : (
             /* Send List */
-            <div className="glass-card overflow-hidden rounded-2xl">
+            <div className="glass-card overflow-hidden rounded-xl">
               {sends.length === 0 ? (
                 <div className="px-6 py-12 text-center text-[var(--text-secondary)]">
                   Noch keine Newsletter versendet.
@@ -2063,11 +2542,10 @@ export default function AdminNewsletter() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-700">
+                      <tr className="border-b border-[var(--border)]">
                         <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Betreff</th>
                         <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Empfänger</th>
                         <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Zugestellt</th>
-                        <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Geöffnet</th>
                         <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Geklickt</th>
                         <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Bounced</th>
                         <th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Datum</th>
@@ -2075,20 +2553,16 @@ export default function AdminNewsletter() {
                     </thead>
                     <tbody>
                       {sends.map((s) => {
-                        const hasTracking = (s.delivered_count ?? 0) > 0 || (s.opened_count ?? 0) > 0 || (s.bounced_count ?? 0) > 0
-                        const openRate = hasTracking && s.recipient_count > 0
-                          ? Math.round(((s.opened_count ?? 0) / s.recipient_count) * 100)
-                          : null
+                        const hasTracking = (s.delivered_count ?? 0) > 0 || (s.bounced_count ?? 0) > 0
                         const clickRate = hasTracking && s.recipient_count > 0
                           ? Math.round(((s.clicked_count ?? 0) / s.recipient_count) * 100)
                           : null
-                        const openRateColor = openRate === null ? '' : openRate > 40 ? 'text-emerald-600 dark:text-emerald-400' : openRate >= 20 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
 
                         return (
                           <tr
                             key={s.id}
                             onClick={() => loadSendDetail(s)}
-                            className="cursor-pointer border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50"
+                            className="cursor-pointer border-b border-[var(--border)] last:border-0 transition-colors hover:bg-[var(--bg-secondary)]"
                           >
                             <td className="px-5 py-3 text-[var(--text)]">
                               <div className="font-medium">{s.subject}</div>
@@ -2097,13 +2571,6 @@ export default function AdminNewsletter() {
                             <td className="px-5 py-3 text-[var(--text)]">{s.recipient_count}</td>
                             <td className="px-5 py-3 text-[var(--text)]">
                               {hasTracking ? (s.delivered_count ?? 0) : '—'}
-                            </td>
-                            <td className="px-5 py-3">
-                              {hasTracking ? (
-                                <span className={openRateColor}>
-                                  {s.opened_count ?? 0} ({openRate}%)
-                                </span>
-                              ) : '—'}
                             </td>
                             <td className="px-5 py-3 text-[var(--text)]">
                               {hasTracking ? (
@@ -2134,13 +2601,13 @@ export default function AdminNewsletter() {
       {tab === 'settings' && (
         <div className="space-y-6">
           {!promptsLoaded ? (
-            <div className="glass-card rounded-2xl p-6">
+            <div className="glass-card rounded-xl p-6">
               <div className="py-6 text-center text-[var(--text-secondary)]">Laden…</div>
             </div>
           ) : (
             <>
               {/* Generator Prompt */}
-              <div className="glass-card space-y-4 rounded-2xl p-6">
+              <div className="glass-card space-y-4 rounded-xl p-6">
                 <h3 className="text-lg font-semibold text-[var(--text)]">Schritt 1: Generator-Prompt</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
                   Generiert 10 Betreffzeilen-Vorschläge und markiert die besten 3.
@@ -2151,16 +2618,16 @@ export default function AdminNewsletter() {
                   onChange={(e) => setGeneratorPrompt(e.target.value)}
                   placeholder={`Du bist ein Newsletter-Betreff-Generator für "KOKOMO" — einen Tiny House Blog aus der Schweiz.\nDie Bewohner sind Sibylle und Michi, die seit September 2022 in ihrem Tiny House leben.\n\nDeine Aufgabe: Generiere genau 10 Newsletter-Betreffzeilen basierend auf den Inhalten.\nMarkiere die besten 3 als Top-Vorschläge.\n\nRegeln:\n- Maximal 60 Zeichen pro Betreffzeile\n- Persoenlich und authentisch, kein Clickbait\n- Macht neugierig und animiert zum Oeffnen\n- Verwende "ss" statt "ß"\n- Deutsch (Schweizer Stil)`}
                   rows={10}
-                  className="w-full rounded-xl border border-slate-300 bg-white/80 px-4 py-3 text-sm text-[var(--text)] placeholder:text-slate-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-slate-600 dark:bg-slate-800/80 dark:placeholder:text-slate-500 dark:focus:border-primary-500 dark:focus:ring-primary-800"
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 "
                 />
                 <p className="text-xs text-[var(--text-secondary)] opacity-75">
-                  <code className="rounded bg-slate-200 px-1 py-0.5 dark:bg-slate-700">{'{{content}}'}</code> wird durch den Newsletter-Inhalt ersetzt (optional — der Inhalt wird auch als separate Nachricht gesendet).
+                  <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5">{'{{content}}'}</code> wird durch den Newsletter-Inhalt ersetzt (optional — der Inhalt wird auch als separate Nachricht gesendet).
                   Das JSON-Antwortformat wird automatisch angehängt.
                 </p>
               </div>
 
               {/* Reviewer Prompt */}
-              <div className="glass-card space-y-4 rounded-2xl p-6">
+              <div className="glass-card space-y-4 rounded-xl p-6">
                 <h3 className="text-lg font-semibold text-[var(--text)]">Schritt 2: Reviewer-Prompt</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
                   Wählt die beste Betreffzeile aus oder formuliert eine bessere.
@@ -2171,7 +2638,7 @@ export default function AdminNewsletter() {
                   onChange={(e) => setReviewerPrompt(e.target.value)}
                   placeholder={`Du bist ein erfahrener Newsletter-Redakteur für "KOKOMO" — einen Tiny House Blog aus der Schweiz.\n\nDu erhältst 10 Betreffzeilen-Vorschläge, davon 3 als Top-Vorschläge markiert.\nWähle die beste Betreffzeile aus oder formuliere eine noch bessere basierend auf den Vorschlägen.\n\nKriterien:\n- Maximal 60 Zeichen\n- Hohe Oeffnungsrate\n- Authentisch, nicht reisserisch\n- Verwende "ss" statt "ß"`}
                   rows={10}
-                  className="w-full rounded-xl border border-slate-300 bg-white/80 px-4 py-3 text-sm text-[var(--text)] placeholder:text-slate-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-slate-600 dark:bg-slate-800/80 dark:placeholder:text-slate-500 dark:focus:border-primary-500 dark:focus:ring-primary-800"
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 "
                 />
                 <p className="text-xs text-[var(--text-secondary)] opacity-75">
                   Erhält die Generator-Vorschläge als Eingabe.
@@ -2184,14 +2651,14 @@ export default function AdminNewsletter() {
                 <button
                   onClick={savePrompts}
                   disabled={savingPrompt}
-                  className="rounded-full bg-primary-700px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-800 disabled:opacity-50"
+                  className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
                 >
                   {savingPrompt ? 'Speichern…' : 'Beide Prompts speichern'}
                 </button>
                 <button
                   onClick={resetPrompts}
                   disabled={savingPrompt}
-                  className="rounded-full border border-slate-300 px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
                 >
                   Zurücksetzen
                 </button>
@@ -2210,7 +2677,7 @@ export default function AdminNewsletter() {
       {toast && (
         <div className="fixed inset-x-0 top-6 z-[9999] flex justify-center pointer-events-none">
           <div
-            className={`pointer-events-auto flex items-center gap-3 rounded-2xl border px-5 py-3 shadow-xl backdrop-blur-md ${
+            className={`pointer-events-auto flex items-center gap-3 rounded-xl border px-5 py-3 shadow-xl backdrop-blur-md ${
               toast.type === 'success'
                 ? 'border-emerald-200/60 bg-emerald-50/90 text-emerald-800 dark:border-emerald-700/60 dark:bg-emerald-900/80 dark:text-emerald-200'
                 : toast.type === 'info'
@@ -2234,7 +2701,7 @@ export default function AdminNewsletter() {
       {/* --- Confirm Send Modal --------------------------------- */}
       {confirmSend && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/20 bg-white/90 p-6 shadow-2xl backdrop-blur-xl dark:border-slate-700/50 dark:bg-slate-900/90">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl backdrop-blur-xl">
             <h3 className="mb-2 text-lg font-semibold text-[var(--text)]">Newsletter versenden</h3>
             <p className="mb-1 text-sm text-[var(--text-secondary)]">
               Bist du sicher, dass du den Newsletter versenden möchtest?
@@ -2245,13 +2712,13 @@ export default function AdminNewsletter() {
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setConfirmSend(false)}
-                className="rounded-full border border-slate-300 px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSendConfirmed}
-                className="rounded-full bg-primary-700px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-800"
+                className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700"
               >
                 Jetzt senden
               </button>
@@ -2263,7 +2730,7 @@ export default function AdminNewsletter() {
       {/* --- Test Send Modal ------------------------------------ */}
       {showTestSend && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/20 bg-white/90 p-6 shadow-2xl backdrop-blur-xl dark:border-slate-700/50 dark:bg-slate-900/90">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl backdrop-blur-xl">
             <h3 className="mb-2 text-lg font-semibold text-[var(--text)]">Test-Newsletter senden</h3>
             <p className="mb-4 text-sm text-[var(--text-secondary)]">
               &laquo;[TEST] {subject}&raquo; wird an diese Adresse gesendet:
@@ -2280,7 +2747,7 @@ export default function AdminNewsletter() {
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowTestSend(false)}
-                className="rounded-full border border-slate-300 px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
               >
                 Abbrechen
               </button>
@@ -2299,19 +2766,19 @@ export default function AdminNewsletter() {
       {/* --- Generic Confirm Modal ------------------------------ */}
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/20 bg-white/90 p-6 shadow-2xl backdrop-blur-xl dark:border-slate-700/50 dark:bg-slate-900/90">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl backdrop-blur-xl">
             <h3 className="mb-3 text-lg font-semibold text-[var(--text)]">{confirmAction.title}</h3>
             <p className="mb-6 text-sm text-[var(--text-secondary)]">{confirmAction.message}</p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setConfirmAction(null)}
-                className="rounded-full border border-slate-300 px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                className="glass-button"
               >
                 Abbrechen
               </button>
               <button
                 onClick={confirmAction.onConfirm}
-                className="rounded-full bg-red-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+                className="rounded-xl bg-red-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
               >
                 Löschen
               </button>
@@ -2319,6 +2786,9 @@ export default function AdminNewsletter() {
           </div>
         </div>
       )}
+
+        </div>{/* /max-w content */}
+      </div>{/* /overflow-y-auto */}
     </div>
   )
 }

@@ -1,15 +1,15 @@
 /**
  * Email automation data layer — Drizzle ORM
- * Manages drip campaigns: automations, steps, enrollments, sends
+ * Manages graph-based workflows: automations, nodes, edges, enrollments
  */
 
 import { eq, and, sql } from 'drizzle-orm'
 import { getDb } from './db'
 import {
   emailAutomations,
-  emailAutomationSteps,
   emailAutomationEnrollments,
   emailAutomationSends,
+  automationNodes,
 } from './schema'
 
 // ─── Types ─────────────────────────────────────────────────────────────
@@ -19,22 +19,12 @@ export interface Automation {
   site_id: string
   name: string
   trigger_type: string
+  trigger_config: string
   active: number
   created_at: string
   updated_at: string
   step_count?: number
   enrollment_count?: number
-}
-
-export interface AutomationStep {
-  id: number
-  automation_id: number
-  step_order: number
-  delay_hours: number
-  subject: string
-  blocks_json: string
-  created_at: string
-  updated_at: string
 }
 
 export interface AutomationEnrollment {
@@ -45,75 +35,82 @@ export interface AutomationEnrollment {
   enrolled_at: string
   completed_at: string | null
   cancelled_at: string | null
-}
-
-export interface PendingSend {
-  enrollment_id: number
-  subscriber_email: string
-  enrolled_at: string
-  step_id: number
-  step_order: number
-  delay_hours: number
-  subject: string
-  blocks_json: string
-  automation_id: number
-  automation_name: string
-  site_id: string
+  trigger_ref: string | null
 }
 
 // ─── Automation CRUD ───────────────────────────────────────────────────
 
 export async function listAutomations(siteId: string): Promise<Automation[]> {
   const db = getDb()
-  const rows = await db.run(sql`
-    SELECT a.*,
-      (SELECT COUNT(*) FROM email_automation_steps WHERE automation_id = a.id) AS step_count,
-      (SELECT COUNT(*) FROM email_automation_enrollments WHERE automation_id = a.id) AS enrollment_count
-    FROM email_automations a WHERE a.site_id = ${siteId} ORDER BY a.created_at DESC
-  `)
-  return (rows.rows ?? []).map((r) => ({
-    id: r.id as number, site_id: r.site_id as string, name: r.name as string,
-    trigger_type: r.trigger_type as string, active: r.active as number,
-    created_at: r.created_at as string, updated_at: r.updated_at as string,
-    step_count: r.step_count as number, enrollment_count: r.enrollment_count as number,
+  const rows = await db.select({
+    id: emailAutomations.id,
+    siteId: emailAutomations.siteId,
+    name: emailAutomations.name,
+    triggerType: emailAutomations.triggerType,
+    triggerConfig: emailAutomations.triggerConfig,
+    active: emailAutomations.active,
+    createdAt: emailAutomations.createdAt,
+    updatedAt: emailAutomations.updatedAt,
+    // node_count (excluding trigger node) = step_count equivalent
+    stepCount: sql<number>`(SELECT COUNT(*) FROM automation_nodes WHERE automation_id = ${emailAutomations.id} AND node_type != 'trigger')`,
+    enrollmentCount: sql<number>`(SELECT COUNT(*) FROM email_automation_enrollments WHERE automation_id = ${emailAutomations.id})`,
+  }).from(emailAutomations)
+    .where(eq(emailAutomations.siteId, siteId))
+    .orderBy(sql`${emailAutomations.createdAt} DESC`)
+
+  return rows.map((r) => ({
+    id: r.id, site_id: r.siteId, name: r.name,
+    trigger_type: r.triggerType, trigger_config: r.triggerConfig,
+    active: r.active, created_at: r.createdAt, updated_at: r.updatedAt,
+    step_count: r.stepCount, enrollment_count: r.enrollmentCount,
   }))
 }
 
-export async function getAutomation(id: number): Promise<{ automation: Automation; steps: AutomationStep[] } | null> {
+export async function getAutomation(id: number): Promise<{ automation: Automation } | null> {
   const db = getDb()
   const aRows = await db.select().from(emailAutomations).where(eq(emailAutomations.id, id)).limit(1)
   if (aRows.length === 0) return null
 
   const a = aRows[0]
-  const automation: Automation = {
-    id: a.id, site_id: a.siteId, name: a.name, trigger_type: a.triggerType,
-    active: a.active, created_at: a.createdAt, updated_at: a.updatedAt,
+  // Read trigger_type from trigger node (not from legacy column)
+  const triggerRows = await db.select({ config: automationNodes.configJson })
+    .from(automationNodes)
+    .where(and(eq(automationNodes.automationId, id), eq(automationNodes.nodeType, 'trigger')))
+    .limit(1)
+
+  let triggerType = a.triggerType
+  let triggerConfig = a.triggerConfig
+  if (triggerRows.length > 0) {
+    try {
+      const cfg = JSON.parse(triggerRows[0].config) as { trigger_type?: string } & Record<string, unknown>
+      if (cfg.trigger_type) triggerType = cfg.trigger_type as typeof a.triggerType
+      triggerConfig = JSON.stringify(cfg)
+    } catch { /* keep legacy */ }
   }
 
-  const sRows = await db.select().from(emailAutomationSteps)
-    .where(eq(emailAutomationSteps.automationId, id))
-    .orderBy(emailAutomationSteps.stepOrder)
-
-  const steps: AutomationStep[] = sRows.map((s) => ({
-    id: s.id, automation_id: s.automationId, step_order: s.stepOrder,
-    delay_hours: s.delayHours, subject: s.subject, blocks_json: s.blocksJson,
-    created_at: s.createdAt, updated_at: s.updatedAt,
-  }))
-
-  return { automation, steps }
+  return {
+    automation: {
+      id: a.id, site_id: a.siteId, name: a.name,
+      trigger_type: triggerType, trigger_config: triggerConfig,
+      active: a.active, created_at: a.createdAt, updated_at: a.updatedAt,
+    },
+  }
 }
 
-export async function createAutomation(siteId: string, name: string, triggerType: string): Promise<number> {
+export async function createAutomation(siteId: string, name: string, triggerType: string, triggerConfig?: string): Promise<number> {
   const db = getDb()
-  const result = await db.insert(emailAutomations).values({ siteId, name, triggerType }).returning({ id: emailAutomations.id })
+  const result = await db.insert(emailAutomations).values({
+    siteId, name,
+    triggerType: triggerType as 'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked',
+    triggerConfig: triggerConfig || '{}',
+  }).returning({ id: emailAutomations.id })
   return result[0].id
 }
 
-export async function updateAutomation(id: number, data: { name?: string; trigger_type?: string; active?: number }): Promise<void> {
+export async function updateAutomation(id: number, data: { name?: string; active?: number }): Promise<void> {
   const db = getDb()
   const set: Record<string, unknown> = { updatedAt: sql`datetime('now')` }
   if (data.name !== undefined) set.name = data.name
-  if (data.trigger_type !== undefined) set.triggerType = data.trigger_type
   if (data.active !== undefined) set.active = data.active
   await db.update(emailAutomations).set(set).where(eq(emailAutomations.id, id))
 }
@@ -123,60 +120,15 @@ export async function deleteAutomation(id: number): Promise<void> {
   await db.delete(emailAutomations).where(eq(emailAutomations.id, id))
 }
 
-// ─── Step CRUD ─────────────────────────────────────────────────────────
-
-export async function saveStep(data: {
-  id?: number; automation_id: number; step_order: number; delay_hours: number; subject: string; blocks_json: string
-}): Promise<number> {
-  const db = getDb()
-
-  if (data.id) {
-    await db.update(emailAutomationSteps).set({
-      stepOrder: data.step_order, delayHours: data.delay_hours,
-      subject: data.subject, blocksJson: data.blocks_json, updatedAt: sql`datetime('now')`,
-    }).where(eq(emailAutomationSteps.id, data.id))
-    return data.id
-  }
-
-  const result = await db.insert(emailAutomationSteps).values({
-    automationId: data.automation_id, stepOrder: data.step_order,
-    delayHours: data.delay_hours, subject: data.subject, blocksJson: data.blocks_json,
-  }).returning({ id: emailAutomationSteps.id })
-  return result[0].id
-}
-
-export async function deleteStep(id: number): Promise<void> {
-  const db = getDb()
-  await db.delete(emailAutomationSteps).where(eq(emailAutomationSteps.id, id))
-}
-
-export async function reorderSteps(automationId: number, stepIds: number[]): Promise<void> {
-  const db = getDb()
-  for (let i = 0; i < stepIds.length; i++) {
-    await db.update(emailAutomationSteps).set({
-      stepOrder: i, updatedAt: sql`datetime('now')`,
-    }).where(and(eq(emailAutomationSteps.id, stepIds[i]), eq(emailAutomationSteps.automationId, automationId)))
-  }
-}
-
 // ─── Enrollment ────────────────────────────────────────────────────────
 
 export async function enrollSubscriber(siteId: string, email: string, triggerType: string): Promise<number> {
-  const db = getDb()
-  const automations = await db.select({ id: emailAutomations.id })
-    .from(emailAutomations)
-    .where(and(eq(emailAutomations.siteId, siteId), eq(emailAutomations.triggerType, triggerType), eq(emailAutomations.active, 1)))
-
+  const { getAutomationsByTriggerType, enrollInGraph } = await import('./graph-automation')
+  const automations = await getAutomationsByTriggerType(siteId, triggerType as 'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked')
   let count = 0
-  for (const row of automations) {
-    try {
-      await db.insert(emailAutomationEnrollments).values({ automationId: row.id, subscriberEmail: email })
-      count++
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : ''
-      if (message.includes('UNIQUE')) continue
-      throw err
-    }
+  for (const a of automations) {
+    const id = await enrollInGraph(a.automationId, email)
+    if (id) count++
   }
   return count
 }
@@ -188,6 +140,13 @@ export async function cancelEnrollments(email: string): Promise<void> {
     .where(and(eq(emailAutomationEnrollments.subscriberEmail, email), eq(emailAutomationEnrollments.status, 'active')))
 }
 
+export async function cancelEnrollmentById(enrollmentId: number): Promise<void> {
+  const db = getDb()
+  await db.update(emailAutomationEnrollments)
+    .set({ status: 'cancelled', cancelledAt: sql`datetime('now')` })
+    .where(eq(emailAutomationEnrollments.id, enrollmentId))
+}
+
 export async function getEnrollments(automationId: number): Promise<AutomationEnrollment[]> {
   const db = getDb()
   const rows = await db.select().from(emailAutomationEnrollments)
@@ -196,63 +155,15 @@ export async function getEnrollments(automationId: number): Promise<AutomationEn
   return rows.map((r) => ({
     id: r.id, automation_id: r.automationId, subscriber_email: r.subscriberEmail,
     status: r.status, enrolled_at: r.enrolledAt,
-    completed_at: r.completedAt, cancelled_at: r.cancelledAt,
+    completed_at: r.completedAt, cancelled_at: r.cancelledAt, trigger_ref: r.triggerRef,
   }))
 }
 
-// ─── Send Processing ───────────────────────────────────────────────────
-
-export async function getPendingSends(): Promise<PendingSend[]> {
-  const db = getDb()
-  const rows = await db.run(sql`
-    SELECT
-      e.id AS enrollment_id, e.subscriber_email, e.enrolled_at,
-      s.id AS step_id, s.step_order, s.delay_hours, s.subject, s.blocks_json,
-      a.id AS automation_id, a.name AS automation_name, a.site_id
-    FROM email_automation_enrollments e
-    JOIN email_automations a ON a.id = e.automation_id AND a.active = 1
-    JOIN email_automation_steps s ON s.automation_id = a.id
-    LEFT JOIN email_automation_sends sent ON sent.enrollment_id = e.id AND sent.step_id = s.id
-    WHERE e.status = 'active' AND sent.id IS NULL
-      AND datetime(e.enrolled_at, '+' || s.delay_hours || ' hours') <= datetime('now')
-    ORDER BY e.id, s.step_order
-  `)
-  return (rows.rows ?? []).map((r) => ({
-    enrollment_id: r.enrollment_id as number, subscriber_email: r.subscriber_email as string,
-    enrolled_at: r.enrolled_at as string, step_id: r.step_id as number,
-    step_order: r.step_order as number, delay_hours: r.delay_hours as number,
-    subject: r.subject as string, blocks_json: r.blocks_json as string,
-    automation_id: r.automation_id as number, automation_name: r.automation_name as string,
-    site_id: r.site_id as string,
-  }))
-}
-
-export async function recordAutomationSend(enrollmentId: number, stepId: number, resendEmailId: string | null): Promise<void> {
-  const db = getDb()
-  await db.insert(emailAutomationSends).values({ enrollmentId, stepId, resendEmailId })
-}
-
-export async function markEnrollmentCompleted(enrollmentId: number): Promise<void> {
-  const db = getDb()
-  await db.update(emailAutomationEnrollments)
-    .set({ status: 'completed', completedAt: sql`datetime('now')` })
-    .where(eq(emailAutomationEnrollments.id, enrollmentId))
-}
-
-export async function isEnrollmentComplete(enrollmentId: number, automationId: number): Promise<boolean> {
-  const db = getDb()
-  const totalRows = await db.select({ cnt: sql<number>`COUNT(*)` })
-    .from(emailAutomationSteps).where(eq(emailAutomationSteps.automationId, automationId))
-  const sentRows = await db.select({ cnt: sql<number>`COUNT(*)` })
-    .from(emailAutomationSends).where(eq(emailAutomationSends.enrollmentId, enrollmentId))
-  return (sentRows[0]?.cnt ?? 0) >= (totalRows[0]?.cnt ?? 0)
-}
-
-// ─── Webhook Event Tracking ────────────────────────────────────────────
+// ─── Webhook Event Tracking (Legacy email_automation_sends table) ─────
 
 export async function updateAutomationSendEvent(
   resendEmailId: string,
-  event: 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained',
+  event: 'delivered' | 'clicked' | 'bounced' | 'complained',
   timestamp: string,
   extras?: { bounce_type?: string },
 ): Promise<void> {
@@ -272,14 +183,6 @@ export async function updateAutomationSendEvent(
         UPDATE email_automation_sends
         SET status = CASE WHEN status = 'sent' THEN 'delivered' ELSE status END,
             delivered_at = COALESCE(delivered_at, ${timestamp})
-        WHERE id = ${id}
-      `)
-      break
-    case 'opened':
-      await db.run(sql`
-        UPDATE email_automation_sends
-        SET status = CASE WHEN status IN ('sent', 'delivered') THEN 'opened' ELSE status END,
-            opened_at = COALESCE(opened_at, ${timestamp}), open_count = open_count + 1
         WHERE id = ${id}
       `)
       break
@@ -303,29 +206,16 @@ export async function updateAutomationSendEvent(
   }
 }
 
-// ─── Stats ─────────────────────────────────────────────────────────────
+// ─── Manual Enrollment ──────────────────────────────────────────────────
 
-export async function getAutomationStepStats(automationId: number): Promise<{
-  step_id: number; step_order: number; subject: string
-  total_sent: number; delivered: number; opened: number; clicked: number; bounced: number
-}[]> {
-  const db = getDb()
-  const rows = await db.run(sql`
-    SELECT
-      s.id AS step_id, s.step_order, s.subject,
-      COUNT(sent.id) AS total_sent,
-      SUM(CASE WHEN sent.status IN ('delivered','opened','clicked') THEN 1 ELSE 0 END) AS delivered,
-      SUM(CASE WHEN sent.status IN ('opened','clicked') THEN 1 ELSE 0 END) AS opened,
-      SUM(CASE WHEN sent.status = 'clicked' THEN 1 ELSE 0 END) AS clicked,
-      SUM(CASE WHEN sent.status = 'bounced' THEN 1 ELSE 0 END) AS bounced
-    FROM email_automation_steps s
-    LEFT JOIN email_automation_sends sent ON sent.step_id = s.id
-    WHERE s.automation_id = ${automationId}
-    GROUP BY s.id ORDER BY s.step_order
-  `)
-  return (rows.rows ?? []).map((r) => ({
-    step_id: r.step_id as number, step_order: r.step_order as number, subject: r.subject as string,
-    total_sent: r.total_sent as number, delivered: r.delivered as number,
-    opened: r.opened as number, clicked: r.clicked as number, bounced: r.bounced as number,
-  }))
+export async function manualEnroll(automationId: number, emails: string[]): Promise<number> {
+  const { enrollInGraph } = await import('./graph-automation')
+  let count = 0
+  for (const email of emails) {
+    const trimmed = email.trim().toLowerCase()
+    if (!trimmed) continue
+    const id = await enrollInGraph(automationId, trimmed, 'manual')
+    if (id) count++
+  }
+  return count
 }

@@ -10,6 +10,7 @@ import {
   updateRecipientResendId,
   getSendForRetry,
   getLinkClicksForSend,
+  getSendBlocksJson,
   getOverallNewsletterStats,
   deleteSubscriber,
 } from '@/lib/newsletter'
@@ -40,11 +41,12 @@ export async function GET(request: Request) {
       if (isNaN(id)) {
         return new Response(JSON.stringify({ error: 'Ungültige sendDetail ID.' }), { status: 400, headers })
       }
-      const [recipients, linkClicks] = await Promise.all([
+      const [recipients, linkClicks, blocksJson] = await Promise.all([
         getRecipientsForSend(id),
         getLinkClicksForSend(id),
+        getSendBlocksJson(id),
       ])
-      return new Response(JSON.stringify({ sendDetail: { recipients, linkClicks } }), { status: 200, headers })
+      return new Response(JSON.stringify({ sendDetail: { recipients, linkClicks, blocksJson } }), { status: 200, headers })
     }
 
     const [subscribers, sends] = await Promise.all([

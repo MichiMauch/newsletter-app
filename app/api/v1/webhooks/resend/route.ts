@@ -54,9 +54,6 @@ export async function POST(request: Request) {
       case 'email.delivered':
         await updateRecipientEvent(emailId, 'delivered', created_at)
         break
-      case 'email.opened':
-        await updateRecipientEvent(emailId, 'opened', created_at)
-        break
       case 'email.clicked':
         await updateRecipientEvent(emailId, 'clicked', created_at, { click_url: data.click?.link })
         break
@@ -68,8 +65,8 @@ export async function POST(request: Request) {
         break
     }
 
-    const automationEvent = type.replace('email.', '') as 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained'
-    if (['delivered', 'opened', 'clicked', 'bounced', 'complained'].includes(automationEvent)) {
+    const automationEvent = type.replace('email.', '') as 'delivered' | 'clicked' | 'bounced' | 'complained'
+    if (['delivered', 'clicked', 'bounced', 'complained'].includes(automationEvent)) {
       await updateAutomationSendEvent(emailId, automationEvent, created_at, {
         bounce_type: data.bounce?.bounce_type,
       })

@@ -28,7 +28,12 @@ export interface LinkListBlock {
   slugs: string[]
 }
 
-export type NewsletterBlock = HeroBlock | TextBlock | LinkListBlock
+export interface LastNewsletterBlock {
+  id: string
+  type: 'last_newsletter'
+}
+
+export type NewsletterBlock = HeroBlock | TextBlock | LinkListBlock | LastNewsletterBlock
 
 export interface NewsletterTemplate {
   id: string
