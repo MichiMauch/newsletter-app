@@ -3,9 +3,12 @@ import { upsertContentItems } from '@/lib/content'
 export async function POST(request: Request) {
   const headers = { 'Content-Type': 'application/json' }
 
-  const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    return new Response(JSON.stringify({ error: 'CRON_SECRET not configured' }), { status: 500, headers })
+  }
+  const authHeader = request.headers.get('authorization')
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
   }
 

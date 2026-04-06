@@ -6,6 +6,7 @@
 
 import type { SiteConfig } from './site-config'
 import type { NewsletterBlock, PostRef } from './newsletter-blocks'
+import { sanitizeHtml } from './sanitize'
 
 export function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -148,8 +149,8 @@ function renderTextBlock(content: string): string {
   let htmlContent: string
 
   if (isHtml) {
-    // Tiptap HTML — inline email-safe styles on tags
-    htmlContent = content
+    // Sanitize first, then apply inline email-safe styles
+    htmlContent = sanitizeHtml(content)
       .replace(/<p>/g, '<p style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0 0 12px;">')
       .replace(/<h2>/g, '<h2 style="color: #111827; font-size: 18px; font-weight: 700; margin: 0 0 12px;">')
       .replace(/<h3>/g, '<h3 style="color: #111827; font-size: 16px; font-weight: 600; margin: 0 0 10px;">')

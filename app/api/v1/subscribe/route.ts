@@ -30,11 +30,16 @@ export async function POST(request: Request) {
   try {
     const { email, siteId = 'kokomo' } = await request.json()
 
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
+    if (!email || typeof email !== 'string') {
       return new Response(JSON.stringify({ error: 'Ungültige E-Mail-Adresse.' }), { status: 400, headers })
     }
 
     const normalized = email.toLowerCase().trim()
+    // RFC 5321: max 254 chars, must have local@domain with at least one dot in domain
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (normalized.length > 254 || !emailRegex.test(normalized)) {
+      return new Response(JSON.stringify({ error: 'Ungültige E-Mail-Adresse.' }), { status: 400, headers })
+    }
     const result = await createSubscriber(siteId, normalized)
     const site = await getSiteConfig(siteId)
 

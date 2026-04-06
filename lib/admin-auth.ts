@@ -1,27 +1,39 @@
 /**
  * Admin authentication helpers
- * Used by all /api/admin/* endpoints
+ * Uses cryptographically random session tokens stored in-memory.
+ * Tokens expire after 7 days.
  */
 
-const AUTH_SALT = 'newsletter-admin-salt'
+const SESSION_TTL = 7 * 24 * 60 * 60 * 1000 // 7 days
+const activeSessions = new Map<string, number>() // token → expiry timestamp
 
-export async function hashSession(password: string, salt: string = AUTH_SALT): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(password + salt)
-  const hash = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+export function createSession(): string {
+  // Clean expired sessions
+  const now = Date.now()
+  for (const [token, expiry] of activeSessions) {
+    if (expiry < now) activeSessions.delete(token)
+  }
+
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  const token = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
+  activeSessions.set(token, now + SESSION_TTL)
+  return token
+}
+
+export function isValidSession(token: string): boolean {
+  const expiry = activeSessions.get(token)
+  if (!expiry) return false
+  if (Date.now() > expiry) {
+    activeSessions.delete(token)
+    return false
+  }
+  return true
 }
 
 export async function isAuthenticated(request: Request): Promise<boolean> {
   const cookie = request.headers.get('cookie') || ''
   const match = cookie.match(/admin_session=([^;]+)/)
   if (!match) return false
-
-  const adminPassword = process.env.ADMIN_PASSWORD
-  if (!adminPassword) return false
-
-  const expected = await hashSession(adminPassword)
-  return match[1] === expected
+  return isValidSession(match[1])
 }
