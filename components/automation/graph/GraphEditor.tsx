@@ -5,7 +5,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
@@ -26,7 +25,19 @@ interface Post {
   slug: string; title: string; summary: string; image: string | null; date: string
 }
 
-const btnSecondary = 'border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]'
+interface ToolbarProps {
+  name: string
+  active: number
+  testing: boolean
+  onNameChange: (name: string) => void
+  onNameBlur: () => void
+  onBack: () => void
+  onDelete: () => void
+  onTest: () => void
+  onToggleActive: () => void
+}
+
+const btnSecondary = 'border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]'
 
 const NEW_NODE_DEFAULTS: Record<NodeType, NodeConfig> = {
   trigger: { trigger_type: 'subscriber_confirmed' },
@@ -54,6 +65,7 @@ export default function GraphEditor({
   posts,
   siteConfig,
   onSaved,
+  toolbar,
 }: {
   automationId: number
   initialNodes: GraphNode[]
@@ -61,6 +73,7 @@ export default function GraphEditor({
   posts: Post[]
   siteConfig: SiteConfig
   onSaved?: () => void
+  toolbar?: ToolbarProps
 }) {
   const [nodes, setNodes] = useState<Node[]>(() => toReactFlowGraph(initialNodes, initialEdges).nodes)
   const [edges, setEdges] = useState<Edge[]>(() => toReactFlowGraph(initialNodes, initialEdges).edges)
@@ -77,7 +90,6 @@ export default function GraphEditor({
 
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId])
 
-  // Sync when initial data changes
   useEffect(() => {
     const rf = toReactFlowGraph(initialNodes, initialEdges)
     setNodes(rf.nodes)
@@ -129,16 +141,13 @@ export default function GraphEditor({
     saveTimerRef.current = setTimeout(() => doSave(), AUTO_SAVE_DELAY)
   }, [doSave])
 
-  // Cleanup timer on unmount
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }, [])
 
   // ── React Flow Handlers ────────────────────────────────────────────
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds))
-    if (changes.some((c) => c.type === 'position' && 'dragging' in c && !c.dragging)) {
-      triggerAutoSave()
-    }
+    if (changes.some((c) => c.type === 'position' && 'dragging' in c && !c.dragging)) triggerAutoSave()
     if (changes.some((c) => c.type === 'remove')) triggerAutoSave()
   }, [triggerAutoSave])
 
@@ -166,6 +175,7 @@ export default function GraphEditor({
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null)
+    setShowAddMenu(false)
   }, [])
 
   const handleConfigSave = (config: NodeConfig) => {
@@ -197,9 +207,9 @@ export default function GraphEditor({
   // ── Render ─────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100vh-120px)] min-h-[500px]">
-      {/* Canvas */}
-      <div className="relative flex-1">
+    <div className="relative h-screen w-full">
+      {/* Canvas — absolute full area */}
+      <div className="absolute inset-0">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -210,47 +220,76 @@ export default function GraphEditor({
           onPaneClick={handlePaneClick}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
+          fitViewOptions={{ padding: 0.3 }}
           proOptions={{ hideAttribution: true }}
         >
           <Background color="var(--border)" gap={20} />
           <Controls showInteractive={false} />
-          <MiniMap nodeColor="var(--color-primary)" maskColor="rgba(0,0,0,0.1)" pannable zoomable />
         </ReactFlow>
+      </div>
 
-        {/* Toolbar */}
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
-          <div className="relative">
-            <button onClick={() => setShowAddMenu(!showAddMenu)} className={btnSecondary + ' bg-[var(--background-card)]'}>
-              + Node
-            </button>
-            {showAddMenu && (
-              <div className="absolute top-full mt-1 border border-[var(--border)] bg-[var(--background-card)] shadow-lg">
-                {ADDABLE_TYPES.map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => handleAddNode(t.key)}
-                    className="block w-full whitespace-nowrap px-4 py-2 text-left text-xs hover:bg-[var(--bg-secondary)]"
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Auto-save status */}
-          <div className="flex items-center gap-1.5 bg-[var(--background-card)] border border-[var(--border)] px-3 py-1.5 text-[10px] font-mono text-[var(--text-muted)]">
-            {saveStatus === 'saving' && <><span className="inline-block h-1.5 w-1.5 bg-amber-400 animate-pulse" /> Speichern…</>}
-            {saveStatus === 'saved' && <><span className="inline-block h-1.5 w-1.5 bg-emerald-500" /> Gespeichert</>}
-            {saveStatus === 'error' && <><span className="inline-block h-1.5 w-1.5 bg-red-500" /> {saveError || 'Fehler'}</>}
-          </div>
+      {/* Floating Toolbar — top left */}
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+        {toolbar && (
+          <button onClick={toolbar.onBack} className="flex h-8 w-8 items-center justify-center bg-[var(--background-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text)]">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          </button>
+        )}
+        {toolbar && (
+          <input
+            type="text"
+            value={toolbar.name}
+            onChange={(e) => toolbar.onNameChange(e.target.value)}
+            onBlur={toolbar.onNameBlur}
+            className="h-8 w-48 border border-[var(--border)] bg-[var(--background-card)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--color-primary)]"
+          />
+        )}
+        <div className="relative">
+          <button onClick={() => setShowAddMenu(!showAddMenu)} className={btnSecondary + ' h-8 bg-[var(--background-card)]'}>
+            + Node
+          </button>
+          {showAddMenu && (
+            <div className="absolute top-full mt-1 border border-[var(--border)] bg-[var(--background-card)] shadow-lg z-20">
+              {ADDABLE_TYPES.map((t) => (
+                <button key={t.key} onClick={() => handleAddNode(t.key)} className="block w-full whitespace-nowrap px-4 py-2 text-left text-xs hover:bg-[var(--bg-secondary)]">
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 bg-[var(--background-card)] border border-[var(--border)] px-2 py-1 text-[10px] font-mono text-[var(--text-muted)]">
+          {saveStatus === 'saving' && <><span className="inline-block h-1.5 w-1.5 bg-amber-400 animate-pulse" /> Speichern…</>}
+          {saveStatus === 'saved' && <><span className="inline-block h-1.5 w-1.5 bg-emerald-500" /> Gespeichert</>}
+          {saveStatus === 'error' && <><span className="inline-block h-1.5 w-1.5 bg-red-500" /> {saveError || 'Fehler'}</>}
         </div>
       </div>
 
-      {/* Right Sidebar */}
-      {selectedNode && (
-        <div className="w-[420px] shrink-0">
+      {/* Floating Toolbar — top right */}
+      {toolbar && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+          <button onClick={toolbar.onTest} disabled={toolbar.testing} className={btnSecondary + ' h-8 bg-[var(--background-card)]'}>
+            {toolbar.testing ? 'Senden…' : 'Testen'}
+          </button>
+          <div className="flex items-center gap-1.5 bg-[var(--background-card)] border border-[var(--border)] px-2 py-1">
+            <span className="text-[10px] text-[var(--text-muted)]">{toolbar.active ? 'Aktiv' : 'Inaktiv'}</span>
+            <button onClick={toolbar.onToggleActive} className="relative h-4 w-7 shrink-0 transition-colors" style={{ background: toolbar.active ? 'var(--color-primary)' : 'var(--border)' }}>
+              <span className="absolute top-0.5 h-3 w-3 bg-white transition-all" style={{ left: toolbar.active ? 'calc(100% - 14px)' : '2px' }} />
+            </button>
+          </div>
+          <button onClick={toolbar.onDelete} className="h-8 px-2 text-[10px] text-red-500 bg-[var(--background-card)] border border-[var(--border)] hover:text-red-700">
+            Löschen
+          </button>
+        </div>
+      )}
+
+      {/* Right Sidebar — fixed to screen edge, slide-in */}
+      <div
+        className={`fixed top-0 right-0 bottom-0 z-30 w-[420px] shadow-xl transition-transform duration-300 ease-in-out ${
+          selectedNode ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        {selectedNode && (
           <NodeConfigPanel
             nodeId={selectedNode.id}
             nodeType={selectedNode.data.nodeType as NodeType}
@@ -261,8 +300,8 @@ export default function GraphEditor({
             onDelete={handleNodeDelete}
             onClose={() => setSelectedNodeId(null)}
           />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

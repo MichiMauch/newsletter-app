@@ -1528,6 +1528,7 @@ export default function AdminNewsletter() {
   const [reviewerPrompt, setReviewerPrompt] = useState('')
   const [promptsLoaded, setPromptsLoaded] = useState(false)
   const [savingPrompt, setSavingPrompt] = useState(false)
+  const [automationFullscreen, setAutomationFullscreen] = useState(false)
 
   const confirmedCount = subscribers.filter((s) => s.status === 'confirmed').length
   const canSend = subject.trim() !== '' && blocksAreValid(blocks) && confirmedCount > 0
@@ -2025,25 +2026,32 @@ export default function AdminNewsletter() {
       </nav>
 
       {/* ── Main Content ─────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1100px] space-y-6 p-6">
-          {/* Stats — editorial oversized numbers */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '2px solid var(--foreground)', paddingBottom: 32, marginBottom: 8 }}>
-            <div className="animate-fade-in-up">
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--color-primary)' }}>{confirmedCount}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Bestätigt</div>
-            </div>
-            <div className="animate-fade-in-up" style={{ animationDelay: '60ms' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
-                {subscribers.filter((s) => s.status === 'pending').length}
+      <div className={`flex-1 ${automationFullscreen ? '' : 'overflow-y-auto'}`}>
+        {/* Automation fullscreen — no container constraints */}
+        {automationFullscreen && tab === 'automations' && (
+          <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} />
+        )}
+
+        <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen ? 'hidden' : ''}`}>
+          {/* Stats — editorial oversized numbers (hidden in automation fullscreen) */}
+          {!automationFullscreen && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '2px solid var(--foreground)', paddingBottom: 32, marginBottom: 8 }}>
+              <div className="animate-fade-in-up">
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--color-primary)' }}>{confirmedCount}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Bestätigt</div>
               </div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Ausstehend</div>
+              <div className="animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
+                  {subscribers.filter((s) => s.status === 'pending').length}
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Ausstehend</div>
+              </div>
+              <div className="animate-fade-in-up" style={{ animationDelay: '120ms' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>{sends.length}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Versendet</div>
+              </div>
             </div>
-            <div className="animate-fade-in-up" style={{ animationDelay: '120ms' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>{sends.length}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Versendet</div>
-            </div>
-          </div>
+          )}
 
       {/* --- Compose Tab ------------------------------------------- */}
       {tab === 'compose' && (
@@ -2668,9 +2676,9 @@ export default function AdminNewsletter() {
         </div>
       )}
 
-      {/* --- Automations Tab --------------------------------------- */}
-      {tab === 'automations' && (
-        <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} />
+      {/* --- Automations Tab (non-fullscreen = list view) --------- */}
+      {tab === 'automations' && !automationFullscreen && (
+        <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} />
       )}
 
       {/* --- Toast ----------------------------------------------- */}

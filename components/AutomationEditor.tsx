@@ -3,9 +3,8 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import type { SiteConfig } from '@/lib/site-config'
-import type { Automation, WizardData } from './automation/types'
+import type { Automation } from './automation/types'
 import type { GraphNode, GraphEdge } from '@/lib/graph-types'
-import WizardOverlay from './automation/WizardOverlay'
 import ConfirmModal from './ConfirmModal'
 
 // React Flow is heavy — load client-side only
@@ -38,7 +37,7 @@ const TRIGGER_LABELS_SHORT: Record<string, string> = {
   link_clicked: 'Link-Klick',
 }
 
-export default function AutomationEditor({ posts, siteConfig }: { posts: Post[]; siteConfig: SiteConfig }) {
+export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { posts: Post[]; siteConfig: SiteConfig; onFullscreen?: (isFullscreen: boolean) => void }) {
   const [automations, setAutomations] = useState<Automation[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -46,7 +45,6 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([])
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([])
   const [editName, setEditName] = useState('')
-  const [showWizard, setShowWizard] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
@@ -81,26 +79,10 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
       setGraphNodes(graph.nodes || [])
       setGraphEdges(graph.edges || [])
       setSelectedId(id)
+      onFullscreen?.(true)
     } catch (err) {
       console.error(err)
       showToast('Automation konnte nicht geladen werden')
-    }
-  }
-
-  const handleWizardComplete = async (data: WizardData) => {
-    try {
-      const result = await api('POST', '/api/admin/automations', {
-        action: 'create-from-wizard',
-        name: data.name,
-        trigger_type: data.trigger,
-        trigger_config: JSON.stringify(data.triggerConfig),
-        steps: data.steps,
-      })
-      setShowWizard(false)
-      await loadList()
-      await loadAutomation(result.id)
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Fehler')
     }
   }
 
@@ -128,6 +110,7 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
         await api('POST', '/api/admin/automations', { action: 'delete', id: automation.id })
         setSelectedId(null)
         setAutomation(null)
+        onFullscreen?.(false)
         setConfirmAction(null)
         loadList()
       },
@@ -160,14 +143,24 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
     </div>
   )
 
-  // ── Wizard ───────────────────────────────────────────────────────────
-  if (showWizard) {
-    return (
-      <div className="space-y-4">
-        <WizardOverlay onComplete={handleWizardComplete} onCancel={() => setShowWizard(false)} />
-        {toastEl}
-      </div>
-    )
+  const [creating, setCreating] = useState(false)
+
+  const handleCreateNew = async () => {
+    if (creating) return
+    setCreating(true)
+    try {
+      const result = await api('POST', '/api/admin/automations', {
+        action: 'create-from-wizard',
+        name: 'Neue Automatisierung',
+        trigger_type: 'subscriber_confirmed',
+        trigger_config: '{}',
+        steps: [],
+      })
+      await loadAutomation(result.id)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Fehler')
+    }
+    setCreating(false)
   }
 
   // ── List ─────────────────────────────────────────────────────────────
@@ -176,14 +169,14 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-[var(--text)]">Automatisierungen</h3>
-          <button onClick={() => setShowWizard(true)} className={btnPrimary}>Neue Automatisierung</button>
+          <button onClick={handleCreateNew} disabled={creating} className={btnPrimary}>{creating ? 'Erstellen…' : 'Neue Automatisierung'}</button>
         </div>
         {loading ? (
           <div className="py-8 text-center text-[var(--text-secondary)]">Laden…</div>
         ) : automations.length === 0 ? (
           <div className="border border-dashed border-[var(--border)] p-8 text-center">
             <div className="text-sm text-[var(--text-secondary)]">Noch keine Automatisierungen erstellt.</div>
-            <button onClick={() => setShowWizard(true)} className="mt-3 text-sm font-medium text-primary-600 hover:underline">
+            <button onClick={handleCreateNew} disabled={creating} className="mt-3 text-sm font-medium text-primary-600 hover:underline">
               Erste Automatisierung erstellen
             </button>
           </div>
@@ -219,32 +212,7 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
 
   // ── Editor ───────────────────────────────────────────────────────────
   return (
-    <div>
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 border border-[var(--border)] bg-[var(--background-card)] px-4 py-2">
-        <button onClick={() => { setSelectedId(null); setAutomation(null); loadList() }} className="p-1 text-[var(--text-secondary)] hover:text-[var(--text)]">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-        </button>
-        <input
-          type="text"
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleUpdateName}
-          className="flex-1 border-none bg-transparent text-sm font-semibold text-[var(--text)] outline-none"
-        />
-        <button onClick={handleDelete} className="text-xs text-red-500 hover:text-red-700">Löschen</button>
-        <button onClick={handleTest} disabled={testing} className={btnSecondary + ' text-xs'}>
-          {testing ? 'Senden…' : 'Testen'}
-        </button>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[var(--text-muted)]">{automation?.active ? 'Aktiv' : 'Inaktiv'}</span>
-          <button onClick={handleToggleActive} className="relative h-5 w-9 shrink-0 transition-colors" style={{ background: automation?.active ? 'var(--color-primary)' : 'var(--border)' }}>
-            <span className="absolute top-0.5 h-4 w-4 bg-white transition-all" style={{ left: automation?.active ? 'calc(100% - 18px)' : '2px' }} />
-          </button>
-        </div>
-      </div>
-
-      {/* Graph Editor */}
+    <div className="h-full">
       {selectedId && (
         <GraphEditor
           automationId={selectedId}
@@ -253,6 +221,17 @@ export default function AutomationEditor({ posts, siteConfig }: { posts: Post[];
           posts={posts}
           siteConfig={siteConfig}
           onSaved={() => showToast('Graph gespeichert')}
+          toolbar={{
+            name: editName,
+            active: automation?.active ?? 0,
+            testing,
+            onNameChange: setEditName,
+            onNameBlur: handleUpdateName,
+            onBack: () => { setSelectedId(null); setAutomation(null); onFullscreen?.(false); loadList() },
+            onDelete: handleDelete,
+            onTest: handleTest,
+            onToggleActive: handleToggleActive,
+          }}
         />
       )}
 
