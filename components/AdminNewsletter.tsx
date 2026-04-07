@@ -561,6 +561,7 @@ function SlotCard({
   block,
   index,
   posts,
+  allBlocks,
   onUpdate,
   onRemove,
   onMove,
@@ -568,10 +569,12 @@ function SlotCard({
   block: NewsletterBlock
   index: number
   posts: Post[]
+  allBlocks?: NewsletterBlock[]
   onUpdate: (updated: NewsletterBlock) => void
   onRemove?: () => void
   onMove: (from: number, to: number) => void
 }) {
+  const [generatingIntro, setGeneratingIntro] = useState(false)
   const [dragOver, setDragOver] = useState<'above' | 'below' | null>(null)
 
   function handleDragStart(e: React.DragEvent) {
@@ -670,11 +673,60 @@ function SlotCard({
       )}
 
       {block.type === 'text' && (
-        <TiptapEditor
-          content={block.content}
-          onChange={(html) => onUpdate({ ...block, content: html })}
-          placeholder="Freitext eingeben…"
-        />
+        <div>
+          <TiptapEditor
+            content={block.content}
+            onChange={(html) => onUpdate({ ...block, content: html })}
+            placeholder="Freitext eingeben…"
+          />
+          {allBlocks && (
+            <button
+              onClick={async () => {
+                setGeneratingIntro(true)
+                try {
+                  // Collect post info from all blocks
+                  const postData: Array<{ title: string; summary: string }> = []
+                  for (const b of allBlocks) {
+                    if (b.type === 'hero' && b.slug) {
+                      const p = posts.find((x) => x.slug === b.slug)
+                      if (p) postData.push({ title: p.title, summary: p.summary })
+                    }
+                    if (b.type === 'link-list') {
+                      for (const s of b.slugs) {
+                        const p = posts.find((x) => x.slug === s)
+                        if (p) postData.push({ title: p.title, summary: p.summary })
+                      }
+                    }
+                  }
+                  if (postData.length === 0) return
+                  const res = await fetch('/api/admin/ai-generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'intro', posts: postData }),
+                  })
+                  if (!res.ok) throw new Error('Fehler')
+                  const data = await res.json()
+                  if (data.text) onUpdate({ ...block, content: `<p>${data.text}</p>` })
+                } catch (err) {
+                  console.error('[AI intro]', err)
+                } finally {
+                  setGeneratingIntro(false)
+                }
+              }}
+              disabled={generatingIntro}
+              className="mt-2 flex items-center gap-1.5 text-xs text-primary-600 hover:underline disabled:opacity-50"
+            >
+              {generatingIntro ? (
+                <span className="animate-pulse">Generiere…</span>
+              ) : (
+                <>
+                  <span>✨</span>
+                  <span>Mit AI ausfüllen</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -1755,24 +1807,28 @@ export default function AdminNewsletter() {
   async function generateSubject() {
     setGeneratingSubject(true)
     try {
-      // Build posts map from blocks
-      const postsMap: Record<string, { title: string; summary: string }> = {}
+      const postData: Array<{ title: string; summary: string }> = []
       for (const block of blocks) {
-        const addPost = (slug: string) => {
-          const post = posts.find((p) => p.slug === slug)
-          if (post) postsMap[slug] = { title: post.title, summary: post.summary }
+        if (block.type === 'hero' && block.slug) {
+          const p = posts.find((x) => x.slug === block.slug)
+          if (p) postData.push({ title: p.title, summary: p.summary })
         }
-        if (block.type === 'hero' && block.slug) addPost(block.slug)
-        if (block.type === 'link-list') block.slugs.forEach((s) => { if (s) addPost(s) })
+        if (block.type === 'link-list') {
+          for (const s of block.slugs) {
+            const p = posts.find((x) => x.slug === s)
+            if (p) postData.push({ title: p.title, summary: p.summary })
+          }
+        }
       }
-      const res = await fetch('/api/admin/suggest-subject', {
+      if (postData.length === 0) return
+      const res = await fetch('/api/admin/ai-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocks, posts: postsMap }),
+        body: JSON.stringify({ type: 'subject', posts: postData }),
       })
       if (!res.ok) throw new Error('Fehler beim Generieren')
       const data = await res.json()
-      if (data.subject) setSubject(data.subject)
+      if (data.text) setSubject(data.text)
     } catch (err) {
       console.error('[generateSubject]', err)
     } finally {
@@ -2193,6 +2249,7 @@ export default function AdminNewsletter() {
                         block={block}
                         index={i}
                         posts={posts}
+                        allBlocks={blocks}
                         onUpdate={(updated) => updateBlock(i, updated)}
                         onRemove={() => removeBlock(i)}
                         onMove={moveBlock}

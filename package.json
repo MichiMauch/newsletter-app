@@ -17,6 +17,7 @@
     "db:sync-content": "npx tsx scripts/sync-content.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.85.0",
     "@libsql/client": "^0.17.2",
     "@tiptap/extension-link": "^3.22.1",
     "@tiptap/pm": "^3.22.1",
