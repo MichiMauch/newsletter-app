@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
+import Link from 'next/link'
 import TiptapEditor from './TiptapEditor'
 import AutomationEditor from './AutomationEditor'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
@@ -105,7 +106,7 @@ interface SubscriberGrowth {
   new_count: number
 }
 
-type Tab = 'compose' | 'subscribers' | 'history' | 'settings' | 'automations'
+type Tab = 'dashboard' | 'compose' | 'subscribers' | 'history' | 'settings' | 'automations'
 type ComposeMode = 'pick-template' | 'fill-slots' | 'build-template'
 
 // --- Helpers -----------------------------------------------------------
@@ -1521,9 +1522,9 @@ function SubscriberGrowthChart({ data }: { data: SubscriberGrowth[] }) {
 
 // --- Main Component ----------------------------------------------------
 
-export default function AdminNewsletter() {
+export default function AdminNewsletter({ initialTab = 'dashboard' }: { initialTab?: Tab } = {}) {
   const [phase, setPhase] = useState<'checking' | 'login' | 'loaded'>('checking')
-  const [tab, setTab] = useState<Tab>('compose')
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
   const [sends, setSends] = useState<NewsletterSend[]>([])
   const [posts, setPosts] = useState<Post[]>([])
@@ -1706,8 +1707,11 @@ export default function AdminNewsletter() {
   }, [])
 
   useEffect(() => {
-    if (tab === 'history' && sendTrends.length === 0) {
+    if ((tab === 'history' || tab === 'dashboard') && sendTrends.length === 0) {
       loadTrends()
+    }
+    if (tab === 'settings' && !promptsLoaded) {
+      loadPrompts()
     }
   }, [tab])
 
@@ -2001,25 +2005,29 @@ export default function AdminNewsletter() {
     )
   }
 
-  const sidebarItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  const sidebarItems: { id: Tab; label: string; href: string; icon: React.ReactNode }[] = [
     {
-      id: 'compose', label: 'Erstellen',
+      id: 'dashboard', label: 'Dashboard', href: '/admin/newsletter',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>,
+    },
+    {
+      id: 'compose', label: 'Erstellen', href: '/admin/newsletter/compose',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>,
     },
     {
-      id: 'subscribers', label: 'Abonnenten',
+      id: 'subscribers', label: 'Abonnenten', href: '/admin/newsletter/subscribers',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77M12 15.07a5.98 5.98 0 00-1.654-.76M15 19.128H5.228A2 2 0 013 17.16V17" /></svg>,
     },
     {
-      id: 'history', label: 'Historie',
+      id: 'history', label: 'Historie', href: '/admin/newsletter/history',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>,
     },
     {
-      id: 'settings', label: 'Settings',
+      id: 'settings', label: 'Settings', href: '/admin/newsletter/settings',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
     },
     {
-      id: 'automations', label: 'Automation',
+      id: 'automations', label: 'Automation', href: '/admin/newsletter/automations',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>,
     },
   ]
@@ -2047,15 +2055,16 @@ export default function AdminNewsletter() {
         {/* Nav Items */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
           {sidebarItems.map((item) => (
-            <button
+            <Link
               key={item.id}
+              href={item.href}
               onClick={() => { setTab(item.id); if (item.id === 'settings' && !promptsLoaded) loadPrompts() }}
               className={`sidebar-icon${tab === item.id ? ' active' : ''}`}
               title={!sidebarOpen ? item.label : undefined}
             >
               {item.icon}
               <span className="sidebar-label">{item.label}</span>
-            </button>
+            </Link>
           ))}
         </div>
 
@@ -2089,25 +2098,88 @@ export default function AdminNewsletter() {
         )}
 
         <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen ? 'hidden' : ''}`}>
-          {/* Stats — editorial oversized numbers (hidden in automation fullscreen) */}
-          {!automationFullscreen && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '2px solid var(--foreground)', paddingBottom: 32, marginBottom: 8 }}>
-              <div className="animate-fade-in-up">
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--color-primary)' }}>{confirmedCount}</div>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Bestätigt</div>
+      {/* --- Dashboard Tab ----------------------------------------- */}
+      {tab === 'dashboard' && (
+        <div className="space-y-6">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <button onClick={() => setTab('subscribers')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--color-primary)' }}>{confirmedCount}</div>
+              <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Abonnenten</div>
+            </button>
+            <button onClick={() => setTab('history')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>{sends.length}</div>
+              <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Versendet</div>
+            </button>
+            <button onClick={() => setTab('history')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
+                {overallStats ? `${overallStats.avg_click_rate}%` : '—'}
               </div>
-              <div className="animate-fade-in-up" style={{ animationDelay: '60ms' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
-                  {subscribers.filter((s) => s.status === 'pending').length}
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Ausstehend</div>
+              <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Ø Klickrate</div>
+            </button>
+            <button onClick={() => setTab('automations')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
+                {subscribers.filter((s) => s.status === 'pending').length}
               </div>
-              <div className="animate-fade-in-up" style={{ animationDelay: '120ms' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 56, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>{sends.length}</div>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 8 }}>Versendet</div>
+              <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Ausstehend</div>
+            </button>
+          </div>
+
+          {/* Charts */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {subscriberGrowth.length >= 2 && <div className="lg:col-span-2"><SubscriberGrowthChart data={subscriberGrowth} /></div>}
+            {sendTrends.length >= 2 && <div className="lg:col-span-2"><EngagementTrendChart trends={sendTrends} /></div>}
+          </div>
+
+          {/* Quick Actions + Recent Sends */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Quick Actions */}
+            <div className="glass-card p-5">
+              <h3 className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Schnellzugriffe</h3>
+              <div className="space-y-2">
+                <Link href="/admin/newsletter/compose" className="flex w-full items-center gap-3 border border-[var(--border)] p-3 text-left text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--text-secondary)]">
+                  <svg className="h-4 w-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                  Newsletter erstellen
+                </Link>
+                <Link href="/admin/newsletter/subscribers" className="flex w-full items-center gap-3 border border-[var(--border)] p-3 text-left text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--text-secondary)]">
+                  <svg className="h-4 w-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77" /></svg>
+                  Abonnenten verwalten
+                </Link>
+                <Link href="/admin/newsletter/automations" className="flex w-full items-center gap-3 border border-[var(--border)] p-3 text-left text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--text-secondary)]">
+                  <svg className="h-4 w-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
+                  Automationen
+                </Link>
               </div>
             </div>
-          )}
+
+            {/* Recent Sends */}
+            <div className="glass-card p-5">
+              <h3 className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Letzte Newsletter</h3>
+              {sends.length === 0 ? (
+                <p className="text-sm text-[var(--text-secondary)]">Noch keine Newsletter versendet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {sends.slice(0, 5).map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => { setTab('history'); loadSendDetail(s) }}
+                      className="flex w-full items-center justify-between border border-[var(--border)] p-3 text-left transition-colors hover:border-[var(--text-secondary)]"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-[var(--text)] truncate">{s.subject}</div>
+                        <div className="text-[10px] text-[var(--text-muted)]">{formatDate(s.sent_at)} · {s.recipient_count} Empfänger</div>
+                      </div>
+                      {(s.clicked_count ?? 0) > 0 && (
+                        <span className="ml-2 text-xs text-primary-600">{s.clicked_count} Klicks</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- Compose Tab ------------------------------------------- */}
       {tab === 'compose' && (
