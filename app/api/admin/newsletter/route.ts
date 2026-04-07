@@ -147,57 +147,32 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
     }
 
-    // ─── Sync content ───
+    // ─── Sync content from kokomo.house ───
     if (action === 'sync-content') {
-      const { readdir, readFile } = await import('fs/promises')
-      const { join } = await import('path')
-      const contentDir = process.env.KOKOMO_CONTENT_DIR || '/Users/michaelmauch/Documents/Development/kokomo2026/src/content/posts'
+      const sourceUrl = process.env.CONTENT_SYNC_SOURCE_URL || 'https://www.kokomo.house/api/sync-newsletter-content'
+      const cronSecret = process.env.CRON_SECRET
 
-      let files: string[]
       try {
-        files = await readdir(contentDir)
-      } catch {
-        return new Response(JSON.stringify({ error: `Content-Verzeichnis nicht gefunden: ${contentDir}` }), { status: 500, headers })
-      }
+        // Call kokomo.house API which fetches all posts and pushes them to our content-sync endpoint
+        const res = await fetch(sourceUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {}),
+          },
+        })
 
-      const mdFiles = files.filter((f) => f.endsWith('.md') || f.endsWith('.mdx'))
-      let synced = 0
-
-      for (const file of mdFiles) {
-        const content = await readFile(join(contentDir, file), 'utf-8')
-        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
-        if (!fmMatch) continue
-
-        const yaml = fmMatch[1]
-        const fm: Record<string, string | boolean> = {}
-        for (const line of yaml.split('\n')) {
-          const colonIdx = line.indexOf(':')
-          if (colonIdx === -1) continue
-          const key = line.slice(0, colonIdx).trim()
-          let val = line.slice(colonIdx + 1).trim()
-          if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) val = val.slice(1, -1)
-          fm[key] = val === 'true' ? true : val === 'false' ? false : val
+        if (!res.ok) {
+          const body = await res.text()
+          return new Response(JSON.stringify({ error: `Sync fehlgeschlagen (${res.status}): ${body}` }), { status: 502, headers })
         }
 
-        if (!fm.title || fm.draft === true) continue
-
-        const slug = file.replace(/\.(md|mdx)$/, '')
-        const image = typeof fm.images === 'string' ? fm.images : null
-
-        await getContentItemsBySlugs(SITE_ID, [slug]) // ensure import is used
-        const { upsertContentItems } = await import('@/lib/content')
-        await upsertContentItems(SITE_ID, [{
-          slug,
-          title: fm.title as string,
-          summary: (fm.summary as string) || undefined,
-          image: image || undefined,
-          date: (fm.date as string) || undefined,
-          published: true,
-        }])
-        synced++
+        const result = await res.json()
+        return new Response(JSON.stringify({ ok: true, synced: result.synced ?? result.total_posts ?? 0 }), { status: 200, headers })
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
+        return new Response(JSON.stringify({ error: `Sync fehlgeschlagen: ${msg}` }), { status: 500, headers })
       }
-
-      return new Response(JSON.stringify({ ok: true, synced }), { status: 200, headers })
     }
 
     // ─── Send newsletter ───
