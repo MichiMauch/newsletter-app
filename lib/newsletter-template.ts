@@ -114,20 +114,22 @@ function renderLinkListBlock(posts: PostRef[], site: SiteConfig): string {
     .map((post) => {
       const postUrl = `${site.site_url}/tiny-house/${cleanSlug(post.slug)}/`
       const imageHtml = post.image
-        ? `<td class="link-img" style="width: 120px; vertical-align: top; padding-right: 16px;">
-            <a href="${escapeHtml(postUrl)}">
-              <img src="${escapeHtml(post.image)}" alt="${escapeHtml(post.title)}" width="120" height="120" style="width: 120px; height: 120px; object-fit: cover; display: block;" />
-            </a>
-          </td>`
+        ? `<tr>
+            <td>
+              <a href="${escapeHtml(postUrl)}">
+                <img src="${escapeHtml(post.image)}" alt="${escapeHtml(post.title)}" width="536" style="width: 100%; height: auto; max-height: 200px; object-fit: cover; display: block;" />
+              </a>
+            </td>
+          </tr>`
         : ''
 
       return `
         <tr>
-          <td style="padding: 16px 0; border-bottom: 1px solid #f3f4f6;">
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <td style="padding: 0 0 24px 0;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom: 1px solid #f3f4f6;">
+              ${imageHtml}
               <tr>
-                ${imageHtml}
-                <td style="vertical-align: top;">
+                <td style="padding: 12px 0 16px 0;">
                   <a href="${escapeHtml(postUrl)}" style="text-decoration: none;">
                     <span style="color: ${site.primary_color}; font-size: 15px; font-weight: 600; line-height: 1.4; display: block;">
                       ${escapeHtml(post.title)}
@@ -149,12 +151,6 @@ function renderLinkListBlock(posts: PostRef[], site: SiteConfig): string {
     .join('')
 
   return `
-    <style>
-      @media only screen and (max-width: 480px) {
-        .link-img { display: block !important; width: 100% !important; padding-right: 0 !important; padding-bottom: 12px !important; }
-        .link-img img { width: 100% !important; height: auto !important; max-height: 200px !important; }
-      }
-    </style>
     <table width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
         <td style="padding: 0 32px 32px 32px;">
