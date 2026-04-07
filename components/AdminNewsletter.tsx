@@ -2205,9 +2205,36 @@ export default function AdminNewsletter() {
                 {/* Right: Draggable article list */}
                 <div className="lg:sticky lg:top-4 lg:self-start">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--background-card)] p-3">
-                    <h4 className="mb-3 text-xs font-semibold text-[var(--text-secondary)]">
-                      Artikel (Drag &amp; Drop)
-                    </h4>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="text-xs font-semibold text-[var(--text-secondary)]">
+                        Artikel (Drag &amp; Drop)
+                      </h4>
+                      <button
+                        onClick={async () => {
+                          setToast({ type: 'info', message: 'Artikel werden synchronisiert…' })
+                          try {
+                            const res = await fetch('/api/admin/newsletter', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'sync-content' }),
+                            })
+                            const data = await res.json()
+                            if (res.ok) {
+                              setToast({ type: 'success', message: `${data.synced} Artikel synchronisiert.` })
+                              loadData()
+                            } else {
+                              setToast({ type: 'error', message: data.error || 'Sync fehlgeschlagen.' })
+                            }
+                          } catch {
+                            setToast({ type: 'error', message: 'Sync fehlgeschlagen.' })
+                          }
+                        }}
+                        className="text-[10px] text-primary-600 hover:underline"
+                        title="Artikel aus kokomo2026 synchronisieren"
+                      >
+                        Aktualisieren
+                      </button>
+                    </div>
                     <div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
                       {posts.slice(0, 20).map((post) => (
                         <DraggablePostItem
