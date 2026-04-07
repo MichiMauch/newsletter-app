@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import type { SiteConfig } from '@/lib/site-config'
 import type { Automation } from './automation/types'
@@ -37,10 +39,11 @@ const TRIGGER_LABELS_SHORT: Record<string, string> = {
   link_clicked: 'Link-Klick',
 }
 
-export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { posts: Post[]; siteConfig: SiteConfig; onFullscreen?: (isFullscreen: boolean) => void }) {
+export default function AutomationEditor({ posts, siteConfig, onFullscreen, initialAutomationId }: { posts: Post[]; siteConfig: SiteConfig; onFullscreen?: (isFullscreen: boolean) => void; initialAutomationId?: number }) {
+  const router = useRouter()
   const [automations, setAutomations] = useState<Automation[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(initialAutomationId ?? null)
   const [automation, setAutomation] = useState<Automation | null>(null)
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([])
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([])
@@ -55,6 +58,10 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { 
   }
 
   useEffect(() => { loadList() }, [])
+
+  useEffect(() => {
+    if (initialAutomationId) loadAutomation(initialAutomationId)
+  }, [initialAutomationId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadList = async () => {
     setLoading(true)
@@ -156,7 +163,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { 
         trigger_config: '{}',
         steps: [],
       })
-      await loadAutomation(result.id)
+      router.push(`/admin/newsletter/automations/${result.id}`)
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Fehler')
     }
@@ -184,7 +191,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { 
           <div className="grid gap-3">
             {automations.map((a) => (
               <div key={a.id} className="flex items-center gap-4 border border-[var(--border)] bg-[var(--background-card)] p-5 transition-colors hover:border-[var(--text-secondary)]">
-                <button onClick={() => loadAutomation(a.id)} className="min-w-0 flex-1 text-left">
+                <Link href={`/admin/newsletter/automations/${a.id}`} className="min-w-0 flex-1 text-left">
                   <div className="font-medium text-[var(--text)]">{a.name}</div>
                   <div className="mt-2 flex gap-3 text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)]">
                     <span>{TRIGGER_LABELS_SHORT[a.trigger_type] || a.trigger_type}</span>
@@ -193,7 +200,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { 
                     <span>·</span>
                     <span>{a.enrollment_count} Abonnent{a.enrollment_count !== 1 ? 'en' : ''}</span>
                   </div>
-                </button>
+                </Link>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleToggleActiveInList(a.id, a.active) }}
                   className="relative h-6 w-11 shrink-0 transition-colors"
@@ -227,7 +234,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen }: { 
             testing,
             onNameChange: setEditName,
             onNameBlur: handleUpdateName,
-            onBack: () => { setSelectedId(null); setAutomation(null); onFullscreen?.(false); loadList() },
+            onBack: () => { setSelectedId(null); setAutomation(null); onFullscreen?.(false); router.push('/admin/newsletter/automations'); loadList() },
             onDelete: handleDelete,
             onTest: handleTest,
             onToggleActive: handleToggleActive,

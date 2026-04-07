@@ -1522,7 +1522,7 @@ function SubscriberGrowthChart({ data }: { data: SubscriberGrowth[] }) {
 
 // --- Main Component ----------------------------------------------------
 
-export default function AdminNewsletter({ initialTab = 'dashboard' }: { initialTab?: Tab } = {}) {
+export default function AdminNewsletter({ initialTab = 'dashboard', automationId }: { initialTab?: Tab; automationId?: number } = {}) {
   const [phase, setPhase] = useState<'checking' | 'login' | 'loaded'>('checking')
   const [tab, setTab] = useState<Tab>(initialTab)
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
@@ -2094,7 +2094,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard' }: { initialT
       <div className={`flex-1 ${automationFullscreen ? '' : 'overflow-y-auto'}`}>
         {/* Automation fullscreen — no container constraints */}
         {automationFullscreen && tab === 'automations' && (
-          <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} />
+          <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} initialAutomationId={automationId} />
         )}
 
         <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen ? 'hidden' : ''}`}>
@@ -2834,7 +2834,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard' }: { initialT
 
       {/* --- Automations Tab (non-fullscreen = list view) --------- */}
       {tab === 'automations' && !automationFullscreen && (
-        <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} />
+        <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} initialAutomationId={automationId} />
       )}
 
       {/* --- Toast ----------------------------------------------- */}

@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx next:*)",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(npx:*)",
+      "Bash(turso --version)",
+      "Bash(turso db:*)",
+      "Bash(cd:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import sys,json; [print\\(f''''{p[\"\"uuid\"\"]} — {p[\"\"name\"\"]}''''\\) for p in json.load\\(sys.stdin\\)]\")",
+      "Bash(ssh:*)",
+      "Bash(python3 -c \"import sys,json; [print\\(f''''{k[\"\"uuid\"\"]} — {k[\"\"name\"\"]}''''\\) for k in json.load\\(sys.stdin\\)]\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f''''{s.get\\(\"\"uuid\"\",\"\"?\"\"\\)} — {s.get\\(\"\"name\"\",\"\"?\"\"\\)} \\(app_id: {s.get\\(\"\"app_id\"\",\"\"?\"\"\\)}\\)''''\\) for s in data]\")",
+      "Bash(python3 -c \":*)",
+      "Bash(ENV_VARS='[:*)",
+      "Bash(__NEW_LINE_84758544b98b2071__ ssh:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''''Status: {d.get\\(\"\"status\"\",\"\"?\"\"\\)} | Created: {d.get\\(\"\"created_at\"\",\"\"?\"\"\\)}''''\\)\")",
+      "Bash(ssh root@78.46.189.129 \"curl -s -H ''''Authorization: Bearer 22|8imliI2zcDluRw1p3SF3EzjzcLhFjI5BGx5IOGCz6ae8b14e'''' -H ''''Accept: application/json'''' ''''http://localhost:8000/api/v1/deployments/nah86lt4fzw37c7zcxob4ljx''''\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''''Status: {d.get\\(\"\"status\"\",\"\"?\"\"\\)}''''\\)\")",
+      "Bash(ssh root@78.46.189.129 \"curl -s -H ''''Authorization: Bearer 22|8imliI2zcDluRw1p3SF3EzjzcLhFjI5BGx5IOGCz6ae8b14e'''' -H ''''Accept: application/json'''' ''''http://localhost:8000/api/v1/deployments/s9uhybgx332tm4kk2rbmt9hf''''\")",
+      "Bash(grep -o \"bg-\\\\|text-\\\\|border-\\\\|hover:\" /Users/michaelmauch/Documents/Development/newsletter-app/components/*.tsx)",
+      "Bash(grep -oE \"\\(bg-|text-|border-|rounded-|px-|py-|w-|h-\\)[a-z0-9/-]+\" /Users/michaelmauch/Documents/Development/newsletter-app/app/**/*.tsx)",
+      "Bash(grep -o \"\\\\[var\\(--[^]]*\\)\\\\]\" /Users/michaelmauch/Documents/Development/newsletter-app/components/*.tsx)",
+      "Bash(ps:*)",
+      "Bash(kill 42713 70515 88542)",
+      "Bash(git rm:*)",
+      "Bash(npm test:*)",
+      "Read(//Users/michaelmauch/Documents/Development/kokomo2026/src/content/**)",
+      "Read(//Users/michaelmauch/Documents/Development/**)",
+      "Bash(python3 -c \"import sys,json; [print\\(f'{a[\\\\\"uuid\\\\\"]} — {a[\\\\\"name\\\\\"]}'\\) for a in json.load\\(sys.stdin\\)]\")",
+      "Bash(python3 -c \"import sys,json; [print\\(f'{e[\\\\\"key\\\\\"]}={e[\\\\\"value\\\\\"][:20]}...'\\) for e in json.load\\(sys.stdin\\)]\")",
+      "Bash(grep -ri \"ANTHROPIC\\\\|OPENAI\\\\|AI_API\" /Users/michaelmauch/Documents/Development/kokomo2026/.env*)",
+      "Bash(python3 -c \"import sys,json; [print\\(e['key']\\) for e in json.load\\(sys.stdin\\)])"
+    ]
+  }
+}
