@@ -214,26 +214,12 @@ async function executeEmail(
   if (resendEmailId) {
     // Old recordAutomationSend requires step_id — we use nodeId as a soft reference.
     // The webhooks can join on resend_email_id instead.
-    await recordAutomationSendByNode(run.enrollment_id, node.id, resendEmailId)
+    void resendEmailId
   }
 
   const next = await getNextNodes(run.automation_id, node.id)
   await advanceEnrollmentToNode(run.enrollment_id, next[0] ?? null, run.context)
   return { status: 'email_sent' }
-}
-
-// Helper: record to email_automation_sends using nodeId as step_id proxy
-async function recordAutomationSendByNode(
-  enrollmentId: number,
-  nodeId: string,
-  resendEmailId: string,
-): Promise<void> {
-  void nodeId
-  // Note: the legacy email_automation_sends.step_id is an integer FK to email_automation_steps.
-  // Since we no longer use steps in graph mode, we skip this write. Webhook handlers
-  // can still identify the email via resend_email_id joining to automation_node_executions.output_json.
-  void enrollmentId
-  void resendEmailId
 }
 
 // ─── Last Newsletter: wraps email with last send content ──────────────

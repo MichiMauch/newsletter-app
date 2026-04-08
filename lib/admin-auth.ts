@@ -1,31 +1,40 @@
 /**
  * Admin authentication helpers
- * Uses cryptographically random session tokens stored in-memory.
+ * Uses cryptographically random session tokens stored in the database.
  * Tokens expire after 7 days.
  */
 
-const SESSION_TTL = 7 * 24 * 60 * 60 * 1000 // 7 days
-const activeSessions = new Map<string, number>() // token → expiry timestamp
+import { getDb } from './db'
+import { adminSessions } from './schema'
+import { eq, lt } from 'drizzle-orm'
 
-export function createSession(): string {
-  // Clean expired sessions
+const SESSION_TTL = 7 * 24 * 60 * 60 * 1000 // 7 days
+
+export async function createSession(): Promise<string> {
+  const db = getDb()
   const now = Date.now()
-  for (const [token, expiry] of activeSessions) {
-    if (expiry < now) activeSessions.delete(token)
-  }
+
+  // Clean expired sessions
+  await db.delete(adminSessions).where(lt(adminSessions.expiresAt, now))
 
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   const token = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
-  activeSessions.set(token, now + SESSION_TTL)
+
+  await db.insert(adminSessions).values({
+    token,
+    expiresAt: now + SESSION_TTL,
+  })
+
   return token
 }
 
-export function isValidSession(token: string): boolean {
-  const expiry = activeSessions.get(token)
-  if (!expiry) return false
-  if (Date.now() > expiry) {
-    activeSessions.delete(token)
+async function isValidSession(token: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await db.select().from(adminSessions).where(eq(adminSessions.token, token)).limit(1)
+  if (rows.length === 0) return false
+  if (Date.now() > rows[0].expiresAt) {
+    await db.delete(adminSessions).where(eq(adminSessions.token, token))
     return false
   }
   return true

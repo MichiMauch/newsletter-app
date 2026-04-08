@@ -117,27 +117,3 @@ export function toReactFlowGraph(
   }
 }
 
-export function fromReactFlowGraph(
-  rfNodes: ReactFlowNode[],
-  rfEdges: ReactFlowEdge[],
-  automationId: number,
-): { nodes: Array<Omit<GraphNode, 'automation_id' | 'created_at' | 'updated_at'>>; edges: Array<Omit<GraphEdge, 'automation_id' | 'created_at'>> } {
-  void automationId
-  return {
-    nodes: rfNodes.map((n) => ({
-      id: n.id,
-      node_type: n.data.nodeType as GraphNode['node_type'],
-      config: n.data.config as GraphNode['config'],
-      position_x: Math.round(n.position.x),
-      position_y: Math.round(n.position.y),
-    })),
-    edges: rfEdges.map((e) => ({
-      id: e.id,
-      source_node_id: e.source,
-      target_node_id: e.target,
-      edge_label: (e.sourceHandle === 'yes' || e.sourceHandle === 'no')
-        ? e.sourceHandle
-        : (e.label === 'yes' || e.label === 'no' ? e.label : null),
-    })),
-  }
-}

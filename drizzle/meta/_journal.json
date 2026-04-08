@@ -5,8 +5,29 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1774899004814,
+      "when": 1743364200000,
       "tag": "0000_gigantic_vertigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1743537600000,
+      "tag": "0001_automation_upgrade",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1743796800000,
+      "tag": "0002_graph_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1775598971621,
+      "tag": "0003_security_tables",
       "breakpoints": true
     }
   ]

@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { ReactNode } from 'react'
 
@@ -15,7 +16,7 @@ interface NodeShellProps {
   conditionBranches?: boolean
 }
 
-export default function NodeShell({
+export default React.memo(function NodeShell({
   icon,
   label,
   title,
@@ -73,4 +74,4 @@ export default function NodeShell({
       ) : null}
     </div>
   )
-}
+})

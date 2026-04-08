@@ -17,8 +17,7 @@ export async function GET(request: Request) {
       results,
     })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[cron/automation-processor] Error:', err)
-    return Response.json({ error: message }, { status: 500 })
+    return Response.json({ error: 'Automation processing failed.' }, { status: 500 })
   }
 }

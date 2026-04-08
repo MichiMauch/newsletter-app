@@ -73,9 +73,8 @@ export async function GET(request: Request) {
 
     return new Response(JSON.stringify(response), { status: 200, headers })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[admin/newsletter GET]', err)
-    return new Response(JSON.stringify({ error: 'Daten konnten nicht geladen werden.', detail: message }), { status: 500, headers })
+    return new Response(JSON.stringify({ error: 'Daten konnten nicht geladen werden.' }), { status: 500, headers })
   }
 }
 
@@ -209,9 +208,8 @@ export async function POST(request: Request) {
 
     return streamSend(subscribers, site, subject, typedBlocks, postsMap, sendId)
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('[admin/newsletter POST]', err)
-    return new Response(JSON.stringify({ error: 'Newsletter konnte nicht versendet werden.', detail: message }), { status: 500, headers })
+    return new Response(JSON.stringify({ error: 'Newsletter konnte nicht versendet werden.' }), { status: 500, headers })
   }
 }
 

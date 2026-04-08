@@ -1,11 +1,17 @@
 import { createSubscriber } from '@/lib/newsletter'
 import { sendConfirmationEmail, sendAlreadySubscribedEmail } from '@/lib/notify'
 import { getSiteConfig } from '@/lib/site-config'
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
+
+const SUBSCRIBE_MAX_REQUESTS = 5
+const SUBSCRIBE_WINDOW_MS = 60 * 60 * 1000 // 1 hour
 
 const ALLOWED_ORIGINS = [
   'https://www.kokomo.house',
   'https://kokomo.house',
 ]
+
+const ALLOWED_SITE_IDS = ['kokomo']
 
 function corsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -28,7 +34,17 @@ export async function POST(request: Request) {
   const headers = corsHeaders(request)
 
   try {
+    const ip = getClientIp(request)
+    const { allowed } = await checkRateLimit(`subscribe:${ip}`, SUBSCRIBE_MAX_REQUESTS, SUBSCRIBE_WINDOW_MS)
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: 'Zu viele Anfragen. Bitte versuche es später erneut.' }), { status: 429, headers })
+    }
+
     const { email, siteId = 'kokomo' } = await request.json()
+
+    if (!ALLOWED_SITE_IDS.includes(siteId)) {
+      return new Response(JSON.stringify({ error: 'Ungültige Site-ID.' }), { status: 400, headers })
+    }
 
     if (!email || typeof email !== 'string') {
       return new Response(JSON.stringify({ error: 'Ungültige E-Mail-Adresse.' }), { status: 400, headers })

@@ -231,6 +231,26 @@ export const automationNodeExecutions = sqliteTable('automation_node_executions'
   index('idx_ane_status').on(table.status),
 ])
 
+// ─── Admin Sessions ────────────────────────────────────────────────
+
+export const adminSessions = sqliteTable('admin_sessions', {
+  token: text('token').primaryKey(),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+// ─── Rate Limiting ─────────────────────────────────────────────────
+
+export const rateLimits = sqliteTable('rate_limits', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  key: text('key').notNull(),
+  windowStart: integer('window_start').notNull(),
+  count: integer('count').notNull().default(1),
+}, (table) => [
+  uniqueIndex('idx_rl_key_window').on(table.key, table.windowStart),
+  index('idx_rl_key').on(table.key),
+])
+
 // ─── Subscriber Tags (für Tag-Node + Condition) ────────────────────────
 
 export const subscriberTags = sqliteTable('subscriber_tags', {

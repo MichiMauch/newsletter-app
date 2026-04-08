@@ -72,9 +72,15 @@ export async function POST(request: Request) {
       const id = await createAutomation(SITE_ID, body.name, body.trigger_type || 'subscriber_confirmed', body.trigger_config)
       // Build graph: trigger node + chain from preset steps
       const triggerId = crypto.randomUUID()
+      let parsedTriggerConfig = {}
+      try {
+        parsedTriggerConfig = JSON.parse(body.trigger_config || '{}')
+      } catch {
+        return Response.json({ error: 'Ungültige trigger_config (kein gültiges JSON).' }, { status: 400 })
+      }
       const triggerConfig = {
         trigger_type: body.trigger_type || 'subscriber_confirmed',
-        ...(JSON.parse(body.trigger_config || '{}')),
+        ...parsedTriggerConfig,
       }
       const nodes: Array<Omit<GraphNode, 'automation_id' | 'created_at' | 'updated_at'>> = [{
         id: triggerId, node_type: 'trigger', config: triggerConfig, position_x: 120, position_y: 40,
@@ -199,6 +205,6 @@ export async function POST(request: Request) {
     }
 
     default:
-      return Response.json({ error: `Unknown action: ${action}` }, { status: 400 })
+      return Response.json({ error: 'Unbekannte Aktion.' }, { status: 400 })
   }
 }

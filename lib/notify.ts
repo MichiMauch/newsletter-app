@@ -5,7 +5,7 @@
 
 import { Resend } from 'resend'
 import type { SiteConfig } from './site-config'
-import { buildNewsletterHtml, buildMultiBlockNewsletterHtml, escapeHtml } from './newsletter-template'
+import { buildNewsletterHtml, buildMultiBlockNewsletterHtml, escapeHtml, sanitizeColor, sanitizeFontFamily } from './newsletter-template'
 import type { NewsletterBlock, PostRef } from './newsletter-blocks'
 
 let _resend: Resend | null = null
@@ -20,9 +20,13 @@ function fromAddress(site: SiteConfig): string {
 
 function emailWrapper(site: SiteConfig, content: string): string {
   const hostname = new URL(site.site_url).hostname
+  const pc = sanitizeColor(site.primary_color)
+  const gc = sanitizeColor(site.gradient_end)
+  const ac = sanitizeColor(site.accent_color)
+  const ff = sanitizeFontFamily(site.font_family)
   return `
-    <div style="font-family: '${site.font_family}', system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e5e7eb;">
-      <div style="background: linear-gradient(135deg, ${site.primary_color}, ${site.gradient_end}); padding: 24px 32px; text-align: center;">
+    <div style="font-family: '${ff}', system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e5e7eb;">
+      <div style="background: linear-gradient(135deg, ${pc}, ${gc}); padding: 24px 32px; text-align: center;">
         ${site.logo_url ? `<img src="${escapeHtml(site.logo_url)}" alt="${escapeHtml(site.name)}" width="48" height="48" style="margin-bottom: 8px;" />` : ''}
         <h1 style="color: white; margin: 0; font-size: 20px; font-weight: 600;">${escapeHtml(site.name)}</h1>
       </div>
@@ -31,7 +35,7 @@ function emailWrapper(site: SiteConfig, content: string): string {
       </div>
       <div style="background: #f9fafb; padding: 16px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
         <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-          Diese E-Mail wurde automatisch von <a href="${escapeHtml(site.site_url)}" style="color: ${site.accent_color}; text-decoration: none;">${escapeHtml(hostname)}</a> gesendet.
+          Diese E-Mail wurde automatisch von <a href="${escapeHtml(site.site_url)}" style="color: ${ac}; text-decoration: none;">${escapeHtml(hostname)}</a> gesendet.
         </p>
       </div>
     </div>
@@ -57,7 +61,7 @@ export async function sendConfirmationEmail(site: SiteConfig, data: { email: str
           direkt schreiben können.
         </p>
         <p style="text-align: center; margin: 32px 0;">
-          <a href="${confirmUrl}" style="display: inline-block; background: ${site.accent_color}; color: white; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: 15px;">
+          <a href="${confirmUrl}" style="display: inline-block; background: ${sanitizeColor(site.accent_color)}; color: white; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: 15px;">
             Anmeldung bestätigen
           </a>
         </p>
@@ -87,7 +91,7 @@ export async function sendAlreadySubscribedEmail(site: SiteConfig, data: { email
           weiter tun und erhältst unsere nächsten Beiträge automatisch.
         </p>
         <p style="text-align: center; margin: 32px 0;">
-          <a href="${escapeHtml(site.site_url)}" style="display: inline-block; background: ${site.accent_color}; color: white; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: 15px;">
+          <a href="${escapeHtml(site.site_url)}" style="display: inline-block; background: ${sanitizeColor(site.accent_color)}; color: white; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: 15px;">
             Zur Website
           </a>
         </p>
