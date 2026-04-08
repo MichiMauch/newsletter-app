@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
-import Link from 'next/link'
 import TiptapEditor from './TiptapEditor'
 import AutomationEditor from './AutomationEditor'
 import DashboardTab from './admin/DashboardTab'
@@ -114,6 +113,17 @@ interface SubscriberGrowth {
 }
 
 type Tab = 'dashboard' | 'compose' | 'subscribers' | 'history' | 'settings' | 'automations'
+
+function tabToHref(tab: Tab): string {
+  return tab === 'dashboard' ? '/admin/newsletter' : `/admin/newsletter/${tab}`
+}
+
+function pathToTab(pathname: string): Tab {
+  const segment = pathname.replace('/admin/newsletter', '').replace(/^\//, '').split('/')[0]
+  if (!segment) return 'dashboard'
+  const tabs: Tab[] = ['compose', 'subscribers', 'history', 'settings', 'automations']
+  return tabs.includes(segment as Tab) ? (segment as Tab) : 'dashboard'
+}
 type ComposeMode = 'pick-template' | 'fill-slots' | 'build-template'
 
 // --- Helpers -----------------------------------------------------------
@@ -825,11 +835,22 @@ function PreviewModal({
 export default function AdminNewsletter({ initialTab = 'dashboard', automationId }: { initialTab?: Tab; automationId?: number } = {}) {
   const [phase, setPhase] = useState<'checking' | 'login' | 'loaded'>('checking')
   const [tab, setTab] = useState<Tab>(initialTab)
+  const setTabWithUrl = useCallback((newTab: Tab) => {
+    setTab(newTab)
+    window.history.pushState(null, '', tabToHref(newTab))
+  }, [])
+
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
   const [sends, setSends] = useState<NewsletterSend[]>([])
   const [posts, setPosts] = useState<Post[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
+
+  useEffect(() => {
+    const handlePopState = () => setTab(pathToTab(window.location.pathname))
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   useEffect(() => {
     const saved = localStorage.getItem('newsletter-dark-mode')
@@ -1198,16 +1219,20 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         {/* Nav Items */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
           {sidebarItems.map((item) => (
-            <Link
+            <a
               key={item.id}
               href={item.href}
-              onClick={() => setTab(item.id)}
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey || e.button === 1) return
+                e.preventDefault()
+                setTabWithUrl(item.id)
+              }}
               className={`sidebar-icon${tab === item.id ? ' active' : ''}`}
               title={!sidebarOpen ? item.label : undefined}
             >
               {item.icon}
               <span className="sidebar-label">{item.label}</span>
-            </Link>
+            </a>
           ))}
         </div>
 
@@ -1249,7 +1274,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
           overallStats={overallStats}
           subscriberGrowth={subscriberGrowth}
           sendTrends={sendTrends}
-          setTab={setTab}
+          setTab={setTabWithUrl}
 
           EngagementTrendChart={EngagementTrendChart}
           SubscriberGrowthChart={SubscriberGrowthChart}
