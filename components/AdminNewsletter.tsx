@@ -17,6 +17,7 @@ import {
   type NewsletterBlock,
   type NewsletterTemplate,
   type PostRef,
+  type UserAuthoredBlockType,
 } from '@/lib/newsletter-blocks'
 import { PREVIEW_SITE_CONFIG } from '@/emails/_preview-data'
 
@@ -148,9 +149,10 @@ const blockTypeLabels: Record<NewsletterBlock['type'], string> = {
   text: 'Freitext',
   'link-list': 'Link-Liste',
   last_newsletter: 'Letzter Newsletter',
+  recap_header: 'Recap-Trenner',
 }
 
-function createBlock(type: NewsletterBlock['type']): NewsletterBlock {
+function createBlock(type: UserAuthoredBlockType): NewsletterBlock {
   const id = crypto.randomUUID()
   switch (type) {
     case 'hero':
@@ -165,7 +167,7 @@ function createBlock(type: NewsletterBlock['type']): NewsletterBlock {
 }
 
 function blocksFromTemplate(template: NewsletterTemplate): NewsletterBlock[] {
-  return template.slots.map((slot) => createBlock(slot.type))
+  return template.slots.map((slot) => createBlock(slot.type as UserAuthoredBlockType))
 }
 
 function blocksAreValid(blocks: NewsletterBlock[]): boolean {
@@ -178,6 +180,10 @@ function blocksAreValid(blocks: NewsletterBlock[]): boolean {
         return block.content.trim() !== ''
       case 'link-list':
         return block.slugs.length > 0
+      case 'last_newsletter':
+        return true
+      case 'recap_header':
+        return true
     }
   })
 }
@@ -401,6 +407,7 @@ const slotMiniIcons: Record<NewsletterBlock['type'], React.ReactElement> = {
   last_newsletter: (
     <div className="mb-1 h-4 rounded bg-amber-200 dark:bg-amber-800" />
   ),
+  recap_header: <div className="mb-1 h-1 rounded bg-[var(--border)]" />,
 }
 
 function TemplateCard({
@@ -441,7 +448,7 @@ function TemplateCard({
 // --- Insert Toolbar (between blocks) ----------------------------------
 
 function InsertToolbar({ onInsert, alwaysExpanded }: {
-  onInsert: (type: NewsletterBlock['type']) => void
+  onInsert: (type: UserAuthoredBlockType) => void
   alwaysExpanded?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -1030,7 +1037,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     setBlocks(next)
   }
 
-  function insertBlock(type: NewsletterBlock['type'], at: number) {
+  function insertBlock(type: UserAuthoredBlockType, at: number) {
     const next = [...blocks]
     next.splice(at, 0, createBlock(type))
     setBlocks(next)

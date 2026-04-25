@@ -14,7 +14,12 @@ import { sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { getSiteConfig } from '@/lib/site-config'
 import { getGraph, saveGraph } from '@/lib/graph-automation'
 import { getContentItemsBySlugs } from '@/lib/content'
-import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
+import {
+  expandInlineLastNewsletter,
+  wrapLastNewsletterStandalone,
+  type NewsletterBlock,
+  type PostRef,
+} from '@/lib/newsletter-blocks'
 import type { GraphNode, GraphEdge, EmailNodeConfig, LastNewsletterNodeConfig } from '@/lib/graph-types'
 
 const SITE_ID = 'kokomo' // TODO: from session/query param when multi-site
@@ -156,21 +161,20 @@ export async function POST(request: Request) {
         if (node.node_type === 'last_newsletter') {
           const lastSend = await getLastSendWithBlocks(SITE_ID)
           if (!lastSend) continue
-          blocks = JSON.parse(lastSend.blocks_json)
+          const expandedBlocks = JSON.parse(lastSend.blocks_json) as NewsletterBlock[]
+          blocks = wrapLastNewsletterStandalone(expandedBlocks, node.id)
           const cfg = node.config as LastNewsletterNodeConfig
           subject = cfg.subject_override || lastSend.subject
         } else if (node.node_type === 'email') {
           const cfg = node.config as EmailNodeConfig
           subject = cfg.subject || '(kein Betreff)'
           const rawBlocks: NewsletterBlock[] = JSON.parse(cfg.blocks_json || '[]')
-          for (const b of rawBlocks) {
-            if (b.type === 'last_newsletter') {
-              const lastSend = await getLastSendWithBlocks(SITE_ID)
-              if (lastSend) blocks.push(...(JSON.parse(lastSend.blocks_json) as NewsletterBlock[]))
-            } else {
-              blocks.push(b)
-            }
-          }
+          const hasLastNewsletter = rawBlocks.some((b) => b.type === 'last_newsletter')
+          const lastSend = hasLastNewsletter ? await getLastSendWithBlocks(SITE_ID) : null
+          const lastSendBlocks = lastSend
+            ? (JSON.parse(lastSend.blocks_json) as NewsletterBlock[])
+            : null
+          blocks = expandInlineLastNewsletter(rawBlocks, lastSendBlocks)
         } else {
           continue
         }

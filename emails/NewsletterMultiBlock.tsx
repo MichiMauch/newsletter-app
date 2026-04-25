@@ -181,6 +181,30 @@ function TextBlockView({ content }: { content: string }) {
   )
 }
 
+function RecapHeaderBlockView({ label, accentColor }: { label: string; accentColor: string }) {
+  return (
+    <Section style={{ padding: '0 32px 24px' }}>
+      <Hr
+        className="e-divider"
+        style={{ borderColor: '#e5e7eb', margin: '0 0 16px 0' }}
+      />
+      <Text
+        style={{
+          color: accentColor,
+          fontSize: 11,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.12em',
+          margin: 0,
+          textAlign: 'center',
+        }}
+      >
+        {label}
+      </Text>
+    </Section>
+  )
+}
+
 function SocialLinksView({ site, accentColor }: { site: SiteConfig; accentColor: string }) {
   const entries = Object.entries(site.social_links).filter(([, url]) => url)
   if (entries.length === 0) return null
@@ -227,6 +251,9 @@ export function NewsletterMultiBlock({
         case 'text':
           if (!block.content) return null
           return { id: block.id, type: 'text' as const, content: block.content }
+        case 'recap_header':
+          if (!block.label) return null
+          return { id: block.id, type: 'recap_header' as const, label: block.label }
         case 'last_newsletter':
           return null
       }
@@ -287,9 +314,13 @@ export function NewsletterMultiBlock({
 
           {/* Content */}
           <Section style={{ padding: firstIsHero ? 0 : '24px 0 0' }}>
-            {renderable.map((b, idx) => (
+            {renderable.map((b, idx) => {
+              const prev = renderable[idx - 1]
+              const showAutoDivider =
+                idx > 0 && b.type !== 'recap_header' && prev?.type !== 'recap_header'
+              return (
               <Section key={b.id}>
-                {idx > 0 ? (
+                {showAutoDivider ? (
                   <Section style={{ padding: '0 32px' }}>
                     <Hr className="e-divider" style={{ borderColor: '#e5e7eb', margin: '0 0 32px 0' }} />
                   </Section>
@@ -303,11 +334,14 @@ export function NewsletterMultiBlock({
                     primaryColor={primaryColor}
                     accentColor={accentColor}
                   />
+                ) : b.type === 'recap_header' ? (
+                  <RecapHeaderBlockView label={b.label} accentColor={accentColor} />
                 ) : (
                   <TextBlockView content={b.content} />
                 )}
               </Section>
-            ))}
+              )
+            })}
           </Section>
 
           {/* Footer */}
@@ -386,6 +420,7 @@ NewsletterMultiBlock.PreviewProps = {
       content:
         '<p>Diese Woche teilen wir zwei Beiträge mit dir — ein detailliertes Bau-Tagebuch und eine ehrliche Kostenaufstellung. Viel Spass beim Lesen!</p>',
     },
+    { id: 'recap-1', type: 'recap_header', label: 'Das war unser letzter Newsletter' },
     { id: '3', type: 'link-list', slugs: ['kosten-uebersicht', 'autark-leben'] },
   ],
   postsMap: {

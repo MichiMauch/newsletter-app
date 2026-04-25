@@ -8,7 +8,12 @@ import { getSubscriberByEmail, getLastSendWithBlocks } from './newsletter'
 import { getContentItemsBySlugs } from './content'
 import { getSiteConfig } from './site-config'
 import { addTag, removeTag, hasTag } from './tags'
-import type { NewsletterBlock, PostRef } from './newsletter-blocks'
+import {
+  expandInlineLastNewsletter,
+  wrapLastNewsletterStandalone,
+  type NewsletterBlock,
+  type PostRef,
+} from './newsletter-blocks'
 import type { SiteConfig } from './site-config'
 import type {
   GraphRun,
@@ -169,20 +174,12 @@ async function executeEmail(
   const cfg = node.config as EmailNodeConfig
   const rawBlocks: NewsletterBlock[] = JSON.parse(cfg.blocks_json)
 
-  // Resolve inline last_newsletter blocks
-  const blocks: NewsletterBlock[] = []
-  let subject = cfg.subject
-  for (const b of rawBlocks) {
-    if (b.type === 'last_newsletter') {
-      const lastSend = await getLastSendWithBlocks(run.site_id)
-      if (lastSend) {
-        blocks.push(...(JSON.parse(lastSend.blocks_json) as NewsletterBlock[]))
-        if (!subject) subject = lastSend.subject
-      }
-    } else {
-      blocks.push(b)
-    }
-  }
+  // Resolve inline last_newsletter blocks (only fetch lastSend if needed)
+  const hasLastNewsletterBlock = rawBlocks.some((b) => b.type === 'last_newsletter')
+  const lastSend = hasLastNewsletterBlock ? await getLastSendWithBlocks(run.site_id) : null
+  const lastSendBlocks = lastSend ? (JSON.parse(lastSend.blocks_json) as NewsletterBlock[]) : null
+  const blocks = expandInlineLastNewsletter(rawBlocks, lastSendBlocks)
+  const subject = cfg.subject || lastSend?.subject || ''
 
   const subscriber = await getSubscriberByEmail(run.site_id, run.subscriber_email)
   if (!subscriber) {
@@ -243,7 +240,8 @@ async function executeLastNewsletter(
     return { status: 'skipped_no_subscriber' }
   }
 
-  const blocks: NewsletterBlock[] = JSON.parse(lastSend.blocks_json)
+  const expandedBlocks: NewsletterBlock[] = JSON.parse(lastSend.blocks_json)
+  const blocks = wrapLastNewsletterStandalone(expandedBlocks, node.id)
   const subject = cfg.subject_override || lastSend.subject
 
   const slugs = new Set<string>()
