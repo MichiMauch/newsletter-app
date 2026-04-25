@@ -2,7 +2,6 @@ import {
   Body,
   Button,
   Container,
-  Head,
   Heading,
   Hr,
   Html,
@@ -14,6 +13,8 @@ import {
 } from '@react-email/components'
 import type { SiteConfig } from '@/lib/site-config'
 import { sanitizeColor, sanitizeFontFamily } from '@/lib/newsletter-template'
+import { PREVIEW_SITE_CONFIG } from './_preview-data'
+import { EmailHead } from './_layout'
 
 export interface NewsletterProps {
   site: SiteConfig
@@ -49,10 +50,14 @@ export function Newsletter({
 
   return (
     <Html lang={site.locale.split('-')[0]}>
-      <Head />
+      <EmailHead />
       <Preview>{postTitle}</Preview>
-      <Body style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}>
+      <Body
+        className="e-page"
+        style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}
+      >
         <Container
+          className="e-card"
           style={{
             maxWidth: 600,
             margin: '0 auto',
@@ -112,6 +117,7 @@ export function Newsletter({
             </Text>
             <Heading
               as="h2"
+              className="e-text-heading"
               style={{
                 color: '#111827',
                 margin: '0 0 16px',
@@ -123,6 +129,7 @@ export function Newsletter({
               {postTitle}
             </Heading>
             <Text
+              className="e-text-body"
               style={{
                 color: '#374151',
                 lineHeight: 1.6,
@@ -151,8 +158,9 @@ export function Newsletter({
             </Section>
           </Section>
 
-          <Hr style={{ borderColor: '#e5e7eb', margin: 0 }} />
+          <Hr className="e-divider" style={{ borderColor: '#e5e7eb', margin: 0 }} />
           <Section
+            className="e-footer"
             style={{
               background: '#f9fafb',
               padding: '20px 32px',
@@ -160,11 +168,11 @@ export function Newsletter({
             }}
           >
             {site.footer_text ? (
-              <Text style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
+              <Text className="e-text-muted" style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
                 {site.footer_text}
               </Text>
             ) : (
-              <Text style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
+              <Text className="e-text-muted" style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
                 Du erhältst diesen Newsletter, weil du dich auf{' '}
                 <Link href={site.site_url} style={{ color: accentColor, textDecoration: 'none' }}>
                   {hostname}
@@ -175,6 +183,7 @@ export function Newsletter({
             <Text style={{ margin: 0 }}>
               <Link
                 href={unsubscribeUrl}
+                className="e-link-muted"
                 style={{ color: '#9ca3af', fontSize: 12, textDecoration: 'underline' }}
               >
                 Newsletter abbestellen
@@ -186,5 +195,16 @@ export function Newsletter({
     </Html>
   )
 }
+
+Newsletter.PreviewProps = {
+  site: PREVIEW_SITE_CONFIG,
+  postTitle: 'Wie wir unser Tiny House gebaut haben',
+  postUrl: 'https://preview.localhost/tiny-house/bau-tagebuch/',
+  postImage: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=1200',
+  postSummary:
+    'Ein Erfahrungsbericht über zwölf Monate Tiny-House-Bau — von der ersten Skizze bis zum Einzug. Mit allen Stolpersteinen, Kosten und Lessons Learned.',
+  postDate: '2026-04-20',
+  unsubscribeUrl: 'https://preview.localhost/unsubscribe?token=preview-token',
+} satisfies NewsletterProps
 
 export default Newsletter

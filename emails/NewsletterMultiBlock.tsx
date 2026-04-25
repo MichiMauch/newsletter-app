@@ -2,7 +2,6 @@ import {
   Body,
   Button,
   Container,
-  Head,
   Heading,
   Hr,
   Html,
@@ -16,6 +15,8 @@ import type { SiteConfig } from '@/lib/site-config'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 import { escapeHtml, sanitizeColor, sanitizeFontFamily } from '@/lib/newsletter-template'
 import { sanitizeHtml } from '@/lib/sanitize'
+import { PREVIEW_SITE_CONFIG } from './_preview-data'
+import { EmailHead } from './_layout'
 
 export interface NewsletterMultiBlockProps {
   site: SiteConfig
@@ -66,13 +67,14 @@ function HeroBlockView({ post, site, accentColor }: { post: PostRef; site: SiteC
       <Section style={{ padding: '24px 32px 32px' }}>
         <Heading
           as="h2"
+          className="e-text-heading"
           style={{ color: '#111827', margin: '0 0 16px', fontSize: 22, fontWeight: 700, lineHeight: 1.3 }}
         >
-          <Link href={url} style={{ color: '#111827', textDecoration: 'none' }}>
+          <Link href={url} className="e-text-heading" style={{ color: '#111827', textDecoration: 'none' }}>
             {post.title}
           </Link>
         </Heading>
-        <Text style={{ color: '#374151', lineHeight: 1.6, fontSize: 14, margin: '0 0 24px' }}>
+        <Text className="e-text-body" style={{ color: '#374151', lineHeight: 1.6, fontSize: 14, margin: '0 0 24px' }}>
           {post.summary}
         </Text>
         <Section style={{ textAlign: 'center', margin: 0 }}>
@@ -114,7 +116,7 @@ function LinkListBlockView({
       {posts.map((post) => {
         const url = postUrlFor(site, post)
         return (
-          <Section key={post.slug} style={{ paddingBottom: 24, borderBottom: '1px solid #f3f4f6' }}>
+          <Section key={post.slug} className="e-divider" style={{ paddingBottom: 24, borderBottom: '1px solid #f3f4f6' }}>
             {post.image ? (
               <Link href={url}>
                 <Img
@@ -140,6 +142,7 @@ function LinkListBlockView({
                   {post.title}
                 </Text>
                 <Text
+                  className="e-text-body"
                   style={{
                     color: '#6b7280',
                     fontSize: 13,
@@ -234,10 +237,14 @@ export function NewsletterMultiBlock({
 
   return (
     <Html lang={site.locale.split('-')[0]}>
-      <Head />
+      <EmailHead />
       <Preview>{subject ?? site.name}</Preview>
-      <Body style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}>
+      <Body
+        className="e-page"
+        style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}
+      >
         <Container
+          className="e-card"
           style={{
             maxWidth: 600,
             margin: '0 auto',
@@ -284,7 +291,7 @@ export function NewsletterMultiBlock({
               <Section key={b.id}>
                 {idx > 0 ? (
                   <Section style={{ padding: '0 32px' }}>
-                    <Hr style={{ borderColor: '#e5e7eb', margin: '0 0 32px 0' }} />
+                    <Hr className="e-divider" style={{ borderColor: '#e5e7eb', margin: '0 0 32px 0' }} />
                   </Section>
                 ) : null}
                 {b.type === 'hero' ? (
@@ -305,6 +312,7 @@ export function NewsletterMultiBlock({
 
           {/* Footer */}
           <Section
+            className="e-footer"
             style={{
               background: '#f9fafb',
               padding: '24px 32px',
@@ -314,11 +322,11 @@ export function NewsletterMultiBlock({
           >
             <SocialLinksView site={site} accentColor={accentColor} />
             {site.footer_text ? (
-              <Text style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
+              <Text className="e-text-muted" style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
                 {site.footer_text}
               </Text>
             ) : (
-              <Text style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
+              <Text className="e-text-muted" style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
                 Du erhältst diesen Newsletter, weil du dich auf{' '}
                 <Link href={site.site_url} style={{ color: accentColor, textDecoration: 'none' }}>
                   {hostname}
@@ -329,6 +337,7 @@ export function NewsletterMultiBlock({
             <Text style={{ margin: 0 }}>
               <Link
                 href={unsubscribeUrl}
+                className="e-link-muted"
                 style={{ color: '#9ca3af', fontSize: 12, textDecoration: 'underline' }}
               >
                 Newsletter abbestellen
@@ -340,5 +349,51 @@ export function NewsletterMultiBlock({
     </Html>
   )
 }
+
+const PREVIEW_POST_A: PostRef = {
+  slug: 'bau-tagebuch',
+  title: 'Wie wir unser Tiny House gebaut haben',
+  summary:
+    'Ein Erfahrungsbericht über zwölf Monate Bau — von der ersten Skizze bis zum Einzug.',
+  image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=1200',
+  date: '2026-04-20',
+}
+
+const PREVIEW_POST_B: PostRef = {
+  slug: 'kosten-uebersicht',
+  title: 'Was hat es wirklich gekostet?',
+  summary: 'Volle Kostentransparenz mit Excel-Aufschlüsselung — Material, Handwerker, Behörden.',
+  image: 'https://images.unsplash.com/photo-1554995207-c18c203602cb?w=800',
+  date: '2026-04-12',
+}
+
+const PREVIEW_POST_C: PostRef = {
+  slug: 'autark-leben',
+  title: 'Wie wir autark wohnen',
+  summary: 'Solarstrom, Regenwasser, Komposttoilette — was funktioniert, was nicht.',
+  image: null,
+  date: '2026-04-05',
+}
+
+NewsletterMultiBlock.PreviewProps = {
+  site: PREVIEW_SITE_CONFIG,
+  subject: 'Tiny-House-News: Bau-Tagebuch + Kostenübersicht',
+  blocks: [
+    { id: '1', type: 'hero', slug: 'bau-tagebuch' },
+    {
+      id: '2',
+      type: 'text',
+      content:
+        '<p>Diese Woche teilen wir zwei Beiträge mit dir — ein detailliertes Bau-Tagebuch und eine ehrliche Kostenaufstellung. Viel Spass beim Lesen!</p>',
+    },
+    { id: '3', type: 'link-list', slugs: ['kosten-uebersicht', 'autark-leben'] },
+  ],
+  postsMap: {
+    'bau-tagebuch': PREVIEW_POST_A,
+    'kosten-uebersicht': PREVIEW_POST_B,
+    'autark-leben': PREVIEW_POST_C,
+  },
+  unsubscribeUrl: 'https://preview.localhost/unsubscribe?token=preview-token',
+} satisfies NewsletterMultiBlockProps
 
 export default NewsletterMultiBlock

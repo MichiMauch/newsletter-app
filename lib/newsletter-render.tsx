@@ -4,12 +4,11 @@ import {
   NewsletterMultiBlock,
   type NewsletterMultiBlockProps,
 } from '@/emails/NewsletterMultiBlock'
+import { ConfirmationEmail, type ConfirmationEmailProps } from '@/emails/ConfirmationEmail'
 import {
-  ConfirmationEmail,
   AlreadySubscribedEmail,
-  type ConfirmationEmailProps,
   type AlreadySubscribedEmailProps,
-} from '@/emails/Transactional'
+} from '@/emails/AlreadySubscribedEmail'
 
 export async function renderNewsletterHtml(props: NewsletterProps): Promise<string> {
   return render(<Newsletter {...props} />)

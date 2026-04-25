@@ -15,7 +15,30 @@ import {
 import type { SiteConfig } from '@/lib/site-config'
 import { sanitizeColor, sanitizeFontFamily } from '@/lib/newsletter-template'
 
-function TransactionalLayout({
+const darkModeCss = `
+  @media (prefers-color-scheme: dark) {
+    .e-page { background-color: #0f172a !important; }
+    .e-card { background-color: #1e293b !important; border-color: #334155 !important; }
+    .e-text-heading { color: #f8fafc !important; }
+    .e-text-body { color: #cbd5e1 !important; }
+    .e-text-muted { color: #94a3b8 !important; }
+    .e-footer { background-color: #0f172a !important; border-color: #334155 !important; }
+    .e-divider { border-color: #334155 !important; }
+    .e-link-muted { color: #94a3b8 !important; }
+  }
+`
+
+export function EmailHead() {
+  return (
+    <Head>
+      <meta name="color-scheme" content="light dark" />
+      <meta name="supported-color-schemes" content="light dark" />
+      <style>{darkModeCss}</style>
+    </Head>
+  )
+}
+
+export function TransactionalLayout({
   site,
   preview,
   children,
@@ -32,10 +55,14 @@ function TransactionalLayout({
 
   return (
     <Html lang={site.locale.split('-')[0]}>
-      <Head />
+      <EmailHead />
       <Preview>{preview}</Preview>
-      <Body style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}>
+      <Body
+        className="e-page"
+        style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}
+      >
         <Container
+          className="e-card"
           style={{
             maxWidth: 600,
             margin: '0 auto',
@@ -72,6 +99,7 @@ function TransactionalLayout({
           <Section style={{ padding: 32 }}>{children}</Section>
 
           <Section
+            className="e-footer"
             style={{
               background: '#f9fafb',
               padding: '16px 32px',
@@ -79,7 +107,7 @@ function TransactionalLayout({
               textAlign: 'center',
             }}
           >
-            <Text style={{ color: '#9ca3af', fontSize: 12, margin: 0 }}>
+            <Text className="e-text-muted" style={{ color: '#9ca3af', fontSize: 12, margin: 0 }}>
               Diese E-Mail wurde automatisch von{' '}
               <Link href={site.site_url} style={{ color: accentColor, textDecoration: 'none' }}>
                 {hostname}
@@ -93,7 +121,7 @@ function TransactionalLayout({
   )
 }
 
-function CtaButton({ href, color, children }: { href: string; color: string; children: ReactNode }) {
+export function CtaButton({ href, color, children }: { href: string; color: string; children: ReactNode }) {
   return (
     <Section style={{ textAlign: 'center', margin: '32px 0' }}>
       <Button
@@ -115,60 +143,10 @@ function CtaButton({ href, color, children }: { href: string; color: string; chi
   )
 }
 
-const headingStyle = { color: '#111827', marginTop: 0, fontSize: 22, fontWeight: 700, lineHeight: 1.3 } as const
-const paragraphStyle = { color: '#374151', lineHeight: 1.6, fontSize: 14, margin: '0 0 12px' } as const
-const mutedStyle = { color: '#9ca3af', fontSize: 13, lineHeight: 1.5, margin: '24px 0 0' } as const
+export const headingStyle = { color: '#111827', marginTop: 0, fontSize: 22, fontWeight: 700, lineHeight: 1.3 } as const
+export const paragraphStyle = { color: '#374151', lineHeight: 1.6, fontSize: 14, margin: '0 0 12px' } as const
+export const mutedStyle = { color: '#9ca3af', fontSize: 13, lineHeight: 1.5, margin: '24px 0 0' } as const
 
-export interface ConfirmationEmailProps {
-  site: SiteConfig
-  confirmUrl: string
-}
-
-export function ConfirmationEmail({ site, confirmUrl }: ConfirmationEmailProps) {
-  const accentColor = sanitizeColor(site.accent_color)
-  return (
-    <TransactionalLayout site={site} preview={`Bestätige deine Anmeldung auf ${site.name}`}>
-      <Heading as="h2" style={headingStyle}>
-        Fast geschafft!
-      </Heading>
-      <Text style={paragraphStyle}>
-        Du hast dich für den {site.name} Newsletter angemeldet. Bitte bestätige deine
-        E-Mail-Adresse, damit wir dir künftig direkt schreiben können.
-      </Text>
-      <CtaButton href={confirmUrl} color={accentColor}>
-        Anmeldung bestätigen
-      </CtaButton>
-      <Text style={mutedStyle}>
-        Wenn du dich nicht angemeldet hast, kannst du diese E-Mail einfach ignorieren.
-      </Text>
-    </TransactionalLayout>
-  )
-}
-
-export interface AlreadySubscribedEmailProps {
-  site: SiteConfig
-}
-
-export function AlreadySubscribedEmail({ site }: AlreadySubscribedEmailProps) {
-  const accentColor = sanitizeColor(site.accent_color)
-  return (
-    <TransactionalLayout
-      site={site}
-      preview={`Du bist bereits für den ${site.name} Newsletter angemeldet`}
-    >
-      <Heading as="h2" style={headingStyle}>
-        Du bist bereits dabei!
-      </Heading>
-      <Text style={paragraphStyle}>
-        Gute Nachricht — deine E-Mail-Adresse ist bereits für den {site.name} Newsletter
-        bestätigt. Du musst nichts weiter tun und erhältst unsere nächsten Beiträge automatisch.
-      </Text>
-      <CtaButton href={site.site_url} color={accentColor}>
-        Zur Website
-      </CtaButton>
-      <Text style={mutedStyle}>
-        Wenn du dich nicht erneut angemeldet hast, kannst du diese E-Mail einfach ignorieren.
-      </Text>
-    </TransactionalLayout>
-  )
-}
+export const headingClass = 'e-text-heading'
+export const paragraphClass = 'e-text-body'
+export const mutedClass = 'e-text-muted'
