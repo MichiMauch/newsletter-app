@@ -39,68 +39,6 @@ function cleanSlug(slug: string): string {
   return slug.replace(/\.md$/, '')
 }
 
-export function buildNewsletterHtml(
-  site: SiteConfig,
-  data: {
-    postTitle: string
-    postUrl: string
-    postImage: string | null
-    postSummary: string
-    postDate: string
-    unsubscribeUrl: string
-  },
-): string {
-  const s = safeSiteStyles(site)
-  const formattedDate = new Date(data.postDate).toLocaleDateString(site.locale, {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-
-  return `
-    <div style="font-family: '${s.fontFamily}', system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e5e7eb;">
-      ${
-        data.postImage
-          ? `
-        <div>
-          <img src="${escapeHtml(data.postImage)}" alt="${escapeHtml(data.postTitle)}" width="600" style="width: 100%; display: block; max-height: 320px; object-fit: cover;" />
-        </div>
-      `
-          : `
-        <div style="background: linear-gradient(135deg, ${s.primaryColor}, ${s.gradientEnd}); padding: 32px; text-align: center;">
-          ${site.logo_url ? `<img src="${escapeHtml(site.logo_url)}" alt="${escapeHtml(site.name)}" width="48" height="48" />` : ''}
-          <h1 style="color: white; margin: 8px 0 0; font-size: 20px; font-weight: 600;">${escapeHtml(site.name)}</h1>
-        </div>
-      `
-      }
-      <div style="padding: 32px;">
-        <p style="color: ${s.accentColor}; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 12px;">
-          ${formattedDate}
-        </p>
-        <h2 style="color: #111827; margin: 0 0 16px; font-size: 22px; font-weight: 700; line-height: 1.3;">
-          ${escapeHtml(data.postTitle)}
-        </h2>
-        <p style="color: #374151; line-height: 1.6; font-size: 14px; margin: 0 0 28px;">
-          ${escapeHtml(data.postSummary)}
-        </p>
-        <p style="text-align: center; margin: 0 0 32px;">
-          <a href="${escapeHtml(data.postUrl)}" style="display: inline-block; background: ${s.accentColor}; color: white; padding: 14px 36px; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: 15px;">
-            Weiterlesen
-          </a>
-        </p>
-      </div>
-      <div style="background: #f9fafb; padding: 20px 32px; border-top: 1px solid #e5e7eb; text-align: center;">
-        <p style="color: #9ca3af; font-size: 12px; margin: 0 0 8px;">
-          ${site.footer_text ? escapeHtml(site.footer_text) : `Du erhältst diesen Newsletter, weil du dich auf <a href="${escapeHtml(site.site_url)}" style="color: ${s.accentColor}; text-decoration: none;">${escapeHtml(new URL(site.site_url).hostname)}</a> angemeldet hast.`}
-        </p>
-        <p style="margin: 0;">
-          <a href="${escapeHtml(data.unsubscribeUrl)}" style="color: #9ca3af; font-size: 12px; text-decoration: underline;">Newsletter abbestellen</a>
-        </p>
-      </div>
-    </div>
-  `
-}
-
 // ─── Multi-Block Newsletter ──────────────────────────────────────────
 
 function renderHeroBlock(post: PostRef, site: SiteConfig): string {

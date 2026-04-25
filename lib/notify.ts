@@ -5,7 +5,13 @@
 
 import { Resend } from 'resend'
 import type { SiteConfig } from './site-config'
-import { buildNewsletterHtml, buildMultiBlockNewsletterHtml, escapeHtml, sanitizeColor, sanitizeFontFamily } from './newsletter-template'
+import { escapeHtml, sanitizeColor, sanitizeFontFamily } from './newsletter-template'
+import {
+  renderNewsletterHtml,
+  renderNewsletterText,
+  renderMultiBlockHtml,
+  renderMultiBlockText,
+} from './newsletter-render'
 import type { NewsletterBlock, PostRef } from './newsletter-blocks'
 
 let _resend: Resend | null = null
@@ -124,18 +130,26 @@ export async function sendNewsletterEmail(
   const siteUrl = process.env.SITE_URL || site.site_url
   const unsubscribeUrl = `${siteUrl}/unsubscribe?token=${data.unsubscribeToken}`
 
+  const newsletterProps = {
+    site,
+    postTitle: data.postTitle,
+    postUrl,
+    postImage: data.postImage,
+    postSummary: data.postSummary,
+    postDate: data.postDate,
+    unsubscribeUrl,
+  }
+  const [html, text] = await Promise.all([
+    renderNewsletterHtml(newsletterProps),
+    renderNewsletterText(newsletterProps),
+  ])
+
   const result = await getResend().emails.send({
     from: fromAddress(site),
     to: data.email,
     subject: data.postTitle,
-    html: buildNewsletterHtml(site, {
-      postTitle: data.postTitle,
-      postUrl,
-      postImage: data.postImage,
-      postSummary: data.postSummary,
-      postDate: data.postDate,
-      unsubscribeUrl,
-    }),
+    html,
+    text,
     headers: {
       'List-Unsubscribe': `<${unsubscribeUrl}>`,
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
@@ -161,11 +175,24 @@ export async function sendMultiBlockNewsletterEmail(
   const unsubscribeUrl = `${siteUrl}/unsubscribe?token=${data.unsubscribeToken}`
 
   try {
+    const props = {
+      site,
+      subject: data.subject,
+      blocks: data.blocks,
+      postsMap: data.postsMap,
+      unsubscribeUrl,
+    }
+    const [html, text] = await Promise.all([
+      renderMultiBlockHtml(props),
+      renderMultiBlockText(props),
+    ])
+
     const result = await getResend().emails.send({
       from: fromAddress(site),
       to: data.email,
       subject: data.subject,
-      html: buildMultiBlockNewsletterHtml(site, data.blocks, data.postsMap, unsubscribeUrl),
+      html,
+      text,
       headers: {
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
