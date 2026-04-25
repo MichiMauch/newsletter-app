@@ -4,7 +4,7 @@
 
 export type NodeType = 'trigger' | 'delay' | 'email' | 'last_newsletter' | 'condition' | 'tag'
 
-export type TriggerType = 'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked'
+export type TriggerType = 'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked' | 'engagement_below'
 
 // ─── Node Config Shapes ────────────────────────────────────────────────
 
@@ -12,6 +12,7 @@ export interface TriggerNodeConfig {
   trigger_type: TriggerType
   days?: number           // no_activity_days
   url_contains?: string   // link_clicked
+  threshold?: number      // engagement_below (Score 0-100)
 }
 
 export interface DelayNodeConfig {

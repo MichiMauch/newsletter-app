@@ -98,6 +98,7 @@ const TRIGGER_TYPES: { key: TriggerType; label: string; desc: string }[] = [
   { key: 'manual', label: 'Manuell', desc: 'Admin schreibt ein' },
   { key: 'no_activity_days', label: 'Inaktivität', desc: 'Kein Klick nach X Tagen' },
   { key: 'link_clicked', label: 'Nach Klick', desc: 'Link im Newsletter geklickt' },
+  { key: 'engagement_below', label: 'Engagement-Drop', desc: 'Score unter Schwelle' },
 ]
 
 function TriggerConfigFields({ config, onChange }: { config: TriggerNodeConfig; onChange: (c: TriggerNodeConfig) => void }) {
@@ -131,6 +132,22 @@ function TriggerConfigFields({ config, onChange }: { config: TriggerNodeConfig; 
         <div>
           <label className={labelCls}>URL enthält (leer = beliebig)</label>
           <input type="text" value={config.url_contains ?? ''} onChange={(e) => onChange({ ...config, url_contains: e.target.value })} placeholder="/pricing" className={inputCls} />
+        </div>
+      )}
+      {config.trigger_type === 'engagement_below' && (
+        <div>
+          <label className={labelCls}>Score-Schwelle (0–100)</label>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={config.threshold ?? 20}
+            onChange={(e) => onChange({ ...config, threshold: Number(e.target.value) })}
+            className={inputCls + ' w-32'}
+          />
+          <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
+            Empfehlung: 20 = dormant. 30 = moderate. Score wird täglich um 03:00 UTC neu berechnet.
+          </p>
         </div>
       )}
     </div>

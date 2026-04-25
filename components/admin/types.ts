@@ -5,6 +5,16 @@ export interface Subscriber {
   createdAt: string
   confirmedAt: string | null
   unsubscribedAt: string | null
+  engagement_score?: number | null
+  engagement_tier?: 'active' | 'moderate' | 'dormant' | 'cold' | null
+  tags?: string[]
+}
+
+export const tierBadge: Record<string, { label: string; cls: string }> = {
+  active: { label: 'Aktiv', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' },
+  moderate: { label: 'Mässig', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300' },
+  dormant: { label: 'Schlafend', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300' },
+  cold: { label: 'Kalt', cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300' },
 }
 
 export interface NewsletterSend {

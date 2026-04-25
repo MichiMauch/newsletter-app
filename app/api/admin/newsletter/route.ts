@@ -1,7 +1,8 @@
 import { isAuthenticated } from '@/lib/admin-auth'
 import {
-  getAllSubscribers,
+  getAllSubscribersEnriched,
   getConfirmedSubscribers,
+  getSubscribersByTagSignal,
   getNewsletterSendsWithStats,
   recordNewsletterSend,
   recordNewsletterRecipientsBatch,
@@ -13,10 +14,13 @@ import {
   getSendBlocksJson,
   getOverallNewsletterStats,
   deleteSubscriber,
+  unsubscribeById,
 } from '@/lib/newsletter'
 import { sendNewsletterEmail, sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { getContentItems, getContentItemsBySlugs } from '@/lib/content'
 import { getSiteConfig } from '@/lib/site-config'
+import { enqueueScheduledSends, pushDueSendsToResend } from '@/lib/scheduled-sends'
+import { bootstrapProfilesFromClicks } from '@/lib/send-time-optimization'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 
 const SITE_ID = 'kokomo' // TODO: from session/query param when multi-site
@@ -50,7 +54,7 @@ export async function GET(request: Request) {
     }
 
     const [subscribers, sends] = await Promise.all([
-      getAllSubscribers(SITE_ID),
+      getAllSubscribersEnriched(SITE_ID),
       getNewsletterSendsWithStats(SITE_ID),
     ])
 
@@ -87,8 +91,14 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json()
-    const { action, subject, subscriberId, blocks, testEmail, sendId: retrySendId } = body
+    const { action, subject, subscriberId, blocks, testEmail, sendId: retrySendId, useSto, audienceFilter } = body
     const site = await getSiteConfig(SITE_ID)
+
+    // ─── STO Bootstrap (admin-trigger) ───
+    if (action === 'sto-bootstrap') {
+      const result = await bootstrapProfilesFromClicks(SITE_ID)
+      return new Response(JSON.stringify({ ok: true, ...result }), { status: 200, headers })
+    }
 
     // ─── Test send ───
     if (action === 'test-send') {
@@ -146,6 +156,15 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
     }
 
+    // ─── Unsubscribe (Status setzen, nicht löschen) ───
+    if (action === 'unsubscribe') {
+      if (!subscriberId || typeof subscriberId !== 'number') {
+        return new Response(JSON.stringify({ error: 'Ungültige subscriberId.' }), { status: 400, headers })
+      }
+      await unsubscribeById(subscriberId)
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+    }
+
     // ─── Sync content from kokomo.house ───
     if (action === 'sync-content') {
       const sourceUrl = process.env.CONTENT_SYNC_SOURCE_URL || 'https://www.kokomo.house/api/sync-newsletter-content'
@@ -179,9 +198,16 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: 'action=send und subject sind erforderlich.' }), { status: 400, headers })
     }
 
-    const subscribers = await getConfirmedSubscribers(SITE_ID)
+    const parsedFilter = parseAudienceFilter(audienceFilter)
+    const subscribers = parsedFilter
+      ? await getSubscribersByTagSignal(SITE_ID, parsedFilter.tags, parsedFilter.minSignal)
+      : await getConfirmedSubscribers(SITE_ID)
     if (subscribers.length === 0) {
-      return new Response(JSON.stringify({ error: 'Keine bestätigten Abonnenten vorhanden.' }), { status: 400, headers })
+      return new Response(JSON.stringify({
+        error: parsedFilter
+          ? 'Keine Abonnenten matchen das gewählte Segment.'
+          : 'Keine bestätigten Abonnenten vorhanden.',
+      }), { status: 400, headers })
     }
 
     if (!blocks || !Array.isArray(blocks) || blocks.length === 0) {
@@ -206,6 +232,22 @@ export async function POST(request: Request) {
       subscribers.map((s) => ({ send_id: sendId, email: s.email, resend_email_id: null })),
     )
 
+    // ─── Send-Time Optimization: per-recipient Schedule statt Stream ───
+    if (useSto) {
+      const enqueued = await enqueueScheduledSends(SITE_ID, sendId, subscribers)
+      const pushResult = await pushDueSendsToResend()
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: 'sto',
+        sendId,
+        enqueued: enqueued.enqueued,
+        earliest: enqueued.earliest,
+        latest: enqueued.latest,
+        pushed_now: pushResult.pushed,
+        failed: pushResult.failed,
+      }), { status: 200, headers })
+    }
+
     return streamSend(subscribers, site, subject, typedBlocks, postsMap, sendId)
   } catch (err: unknown) {
     console.error('[admin/newsletter POST]', err)
@@ -220,6 +262,17 @@ function collectSlugs(blocks: NewsletterBlock[]): Set<string> {
     if (block.type === 'link-list') block.slugs.forEach((s) => slugs.add(s))
   }
   return slugs
+}
+
+function parseAudienceFilter(raw: unknown): { tags: string[]; minSignal: number } | null {
+  if (!raw || typeof raw !== 'object') return null
+  const obj = raw as { tags?: unknown; minSignal?: unknown }
+  const tags = Array.isArray(obj.tags)
+    ? obj.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+    : []
+  const minSignal = typeof obj.minSignal === 'number' && Number.isFinite(obj.minSignal) ? Math.max(1, Math.floor(obj.minSignal)) : 0
+  if (tags.length === 0 || minSignal < 1) return null
+  return { tags, minSignal }
 }
 
 function streamSend(

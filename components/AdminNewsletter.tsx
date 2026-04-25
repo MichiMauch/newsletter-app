@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, type FormEvent } from 'react'
 import TiptapEditor from './TiptapEditor'
 import AutomationEditor from './AutomationEditor'
 import DashboardTab from './admin/DashboardTab'
 import SubscribersTab from './admin/SubscribersTab'
 import SettingsTab from './admin/SettingsTab'
 import HistoryTab from './admin/HistoryTab'
+import EmailTemplatesTab from './admin/EmailTemplatesTab'
 import LoginForm from './admin/LoginForm'
 import EngagementTrendChart from './admin/charts/EngagementTrendChart'
 import SubscriberGrowthChart from './admin/charts/SubscriberGrowthChart'
@@ -20,6 +21,7 @@ import {
   type UserAuthoredBlockType,
 } from '@/lib/newsletter-blocks'
 import { PREVIEW_SITE_CONFIG } from '@/emails/_preview-data'
+import type { EngagementPrediction } from '@/lib/engagement-prediction'
 
 // --- Types -------------------------------------------------------------
 
@@ -30,6 +32,9 @@ interface Subscriber {
   createdAt: string
   confirmedAt: string | null
   unsubscribedAt: string | null
+  engagement_score?: number | null
+  engagement_tier?: 'active' | 'moderate' | 'dormant' | 'cold' | null
+  tags?: string[]
 }
 
 interface NewsletterSend {
@@ -95,7 +100,7 @@ interface SubscriberGrowth {
   new_count: number
 }
 
-type Tab = 'dashboard' | 'compose' | 'subscribers' | 'history' | 'settings' | 'automations'
+type Tab = 'dashboard' | 'compose' | 'subscribers' | 'history' | 'settings' | 'automations' | 'emails'
 
 function tabToHref(tab: Tab): string {
   return tab === 'dashboard' ? '/admin/newsletter' : `/admin/newsletter/${tab}`
@@ -819,6 +824,286 @@ function PreviewModal({
   )
 }
 
+// --- Engagement Panel --------------------------------------------------
+
+export type AudienceMode = 'all' | 'engaged' | 'high'
+export interface AudienceFilter {
+  mode: AudienceMode
+  tags: string[]
+  count: number
+}
+
+function EngagementPanel({
+  slugs,
+  audienceMode,
+  onAudienceChange,
+}: {
+  slugs: string[]
+  audienceMode: AudienceMode
+  onAudienceChange: (filter: AudienceFilter | null) => void
+}) {
+  const slugKey = useMemo(() => [...new Set(slugs)].sort().join('|'), [slugs])
+  const [prediction, setPrediction] = useState<EngagementPrediction | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (slugKey === '') {
+      setPrediction(null)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/admin/engagement-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slugs: slugKey.split('|') }),
+        })
+        if (cancelled) return
+        if (!res.ok) {
+          setError('Prognose konnte nicht geladen werden.')
+          setPrediction(null)
+        } else {
+          const data = (await res.json()) as EngagementPrediction
+          setPrediction(data)
+          setError(null)
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Prognose konnte nicht geladen werden.')
+          setPrediction(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 350)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [slugKey])
+
+  if (slugKey === '') return null
+
+  const high = prediction?.buckets.find((b) => b.level === 'high')
+  const medium = prediction?.buckets.find((b) => b.level === 'medium')
+  const cold = prediction?.buckets.find((b) => b.level === 'cold')
+  const total = prediction?.totalConfirmed ?? 0
+  const reachedAny = (high?.count ?? 0) + (medium?.count ?? 0)
+  const reachPct = total > 0 ? Math.round((reachedAny / total) * 100) : 0
+  const noTags = prediction !== null && prediction.tags.length === 0
+  const noSignals = prediction !== null && prediction.tags.length > 0 && reachedAny === 0
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-[var(--text)]">Engagement-Prognose</span>
+          {loading && (
+            <svg className="h-3.5 w-3.5 animate-spin text-[var(--text-secondary)]" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
+        </div>
+        {prediction && prediction.tags.length > 0 && (
+          <span className="text-xs text-[var(--text-secondary)]">
+            Tags: {prediction.tags.join(', ')}
+          </span>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+
+      {noTags && (
+        <p className="text-xs text-[var(--text-secondary)]">
+          Diese Artikel haben (noch) keine Tags — Prognose nicht möglich.
+        </p>
+      )}
+
+      {prediction && prediction.tags.length > 0 && (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            <BucketCard
+              dotClass="bg-emerald-500"
+              label="Hoch interessiert"
+              count={high?.count ?? 0}
+              hint={high && high.count > 0 ? `ø ${high.avgSignal.toFixed(1)} Klicks` : '—'}
+            />
+            <BucketCard
+              dotClass="bg-amber-500"
+              label="Eher interessiert"
+              count={medium?.count ?? 0}
+              hint={medium && medium.count > 0 ? `ø ${medium.avgSignal.toFixed(1)} Klicks` : '—'}
+            />
+            <BucketCard
+              dotClass="bg-[var(--border)]"
+              label="Wenig Signal"
+              count={cold?.count ?? 0}
+              hint="keine Klicks zu diesen Tags"
+            />
+          </div>
+
+          {prediction.byTag.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {prediction.byTag.map((t) => (
+                <span
+                  key={t.tag}
+                  className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--background-elevated)] px-2.5 py-0.5 text-[11px] text-[var(--text-secondary)]"
+                >
+                  <span className="font-medium text-[var(--text)]">{t.tag}</span>
+                  <span className="opacity-60">·</span>
+                  <span>{t.interestedCount}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <p className="mt-3 text-xs text-[var(--text-secondary)]">
+            {noSignals
+              ? 'Noch keine Klick-Historie zu diesen Tags. Erste Sendungen sind ein Blindflug — danach wird die Prognose schärfer.'
+              : `${reachPct}% deiner ${total} Abonnenten zeigten in der Vergangenheit Interesse an mindestens einem dieser Tags.`}
+          </p>
+
+          <AudienceSelector
+            mode={audienceMode}
+            allCount={total}
+            engagedCount={reachedAny}
+            highCount={high?.count ?? 0}
+            tags={prediction.tags}
+            onChange={onAudienceChange}
+          />
+
+          <SimilarSendsBlock stats={prediction.similarSends} />
+        </>
+      )}
+    </div>
+  )
+}
+
+function AudienceSelector({
+  mode,
+  allCount,
+  engagedCount,
+  highCount,
+  tags,
+  onChange,
+}: {
+  mode: AudienceMode
+  allCount: number
+  engagedCount: number
+  highCount: number
+  tags: string[]
+  onChange: (filter: AudienceFilter | null) => void
+}) {
+  // Keep parent in sync if a non-default mode is active and counts shift
+  // (e.g. after the prediction refreshed because tags changed)
+  useEffect(() => {
+    if (mode === 'all') return
+    const count = mode === 'high' ? highCount : engagedCount
+    onChange({ mode, tags, count })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, highCount, engagedCount, tags.join('|')])
+
+  const buttons: Array<{ key: AudienceMode; label: string; count: number; disabled: boolean }> = [
+    { key: 'all', label: 'Alle', count: allCount, disabled: false },
+    { key: 'engaged', label: 'Mit Interesse', count: engagedCount, disabled: engagedCount === 0 },
+    { key: 'high', label: 'Nur hoch', count: highCount, disabled: highCount === 0 },
+  ]
+
+  function selectMode(next: AudienceMode) {
+    if (next === 'all') {
+      onChange(null)
+      return
+    }
+    const count = next === 'high' ? highCount : engagedCount
+    onChange({ mode: next, tags, count })
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+        Empfängerkreis
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {buttons.map((b) => {
+          const active = mode === b.key
+          return (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => !b.disabled && selectMode(b.key)}
+              disabled={b.disabled}
+              className={
+                'rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ' +
+                (active
+                  ? 'border-primary-600 bg-primary-600 text-white'
+                  : 'border-[var(--border)] bg-[var(--background-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]')
+              }
+            >
+              {b.label} <span className={active ? 'opacity-90' : 'opacity-60'}>· {b.count}</span>
+            </button>
+          )
+        })}
+      </div>
+      {mode !== 'all' && (
+        <p className="mt-1.5 text-[11px] text-[var(--text-secondary)]">
+          Versand nur an Abonnenten, deren Klick-Historie zu diesen Tags passt.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SimilarSendsBlock({ stats }: { stats: EngagementPrediction['similarSends'] }) {
+  if (stats.sampleSize === 0) return null
+  const lowSample = stats.sampleSize < 3
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background-elevated)] p-3">
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+          Ähnliche Sendungen
+        </span>
+        <span className="text-[11px] text-[var(--text-secondary)]">
+          n = {stats.sampleSize}{lowSample ? ' · sehr klein' : ''}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-xl font-semibold text-[var(--text)]">{stats.avgClickRate.toFixed(1)}%</span>
+        <span className="text-xs text-[var(--text-secondary)]">ø Klickrate</span>
+      </div>
+      {stats.examples.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {stats.examples.map((ex) => (
+            <li key={ex.id} className="flex items-center justify-between gap-3 text-[11px]">
+              <span className="truncate text-[var(--text-secondary)]">{ex.subject}</span>
+              <span className="shrink-0 text-[var(--text)]">{ex.clickRate.toFixed(1)}%</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {lowSample && (
+        <p className="mt-2 text-[11px] text-[var(--text-secondary)]">
+          Wenige vergleichbare Sendungen — Aussagekraft begrenzt.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function BucketCard({ dotClass, label, count, hint }: { dotClass: string; label: string; count: number; hint: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--background-elevated)] px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-1.5">
+        <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />
+        <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-secondary)]">{label}</span>
+      </div>
+      <div className="text-xl font-semibold text-[var(--text)]">{count}</div>
+      <div className="text-[11px] text-[var(--text-secondary)]">{hint}</div>
+    </div>
+  )
+}
+
 // --- Trend Charts ------------------------------------------------------
 
 export default function AdminNewsletter({ initialTab = 'dashboard', automationId }: { initialTab?: Tab; automationId?: number } = {}) {
@@ -862,6 +1147,9 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [blocks, setBlocks] = useState<NewsletterBlock[]>([])
   const [subject, setSubject] = useState('')
   const [generatingSubject, setGeneratingSubject] = useState(false)
+  const [subjectOptions, setSubjectOptions] = useState<string[]>([])
+  const [showSubjectPicker, setShowSubjectPicker] = useState(false)
+  const [audienceFilter, setAudienceFilter] = useState<AudienceFilter | null>(null)
   const [sending, setSending] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
   const [showPreview, setShowPreview] = useState(false)
@@ -874,6 +1162,9 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [showTestSend, setShowTestSend] = useState(false)
   const [testEmail, setTestEmail] = useState('')
 
+  // Send-Time Optimization
+  const [useSto, setUseSto] = useState(false)
+
   // Reporting state
   const [sendTrends, setSendTrends] = useState<SendTrend[]>([])
   const [subscriberGrowth, setSubscriberGrowth] = useState<SubscriberGrowth[]>([])
@@ -882,12 +1173,23 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [automationFullscreen, setAutomationFullscreen] = useState(false)
 
   const confirmedCount = subscribers.filter((s) => s.status === 'confirmed').length
-  const canSend = subject.trim() !== '' && blocksAreValid(blocks) && confirmedCount > 0
+  const audienceCount = audienceFilter ? audienceFilter.count : confirmedCount
+  const canSend = subject.trim() !== '' && blocksAreValid(blocks) && audienceCount > 0
+  const usedSlugsKey = useMemo(
+    () => [...new Set([...getUsedSlugs(blocks)])].sort().join('|'),
+    [blocks],
+  )
 
   useEffect(() => {
     setCustomTemplates(loadCustomTemplates())
     setDrafts(loadDrafts())
   }, [])
+
+  useEffect(() => {
+    // Reset audience filter whenever the post selection changes — the cached
+    // count would otherwise drift from the actual segment for the new tag set.
+    setAudienceFilter(null)
+  }, [usedSlugsKey])
 
   async function loadData() {
     try {
@@ -989,6 +1291,8 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
 
   async function generateSubject() {
     setGeneratingSubject(true)
+    setSubjectOptions([])
+    setShowSubjectPicker(true)
     try {
       const postData: Array<{ title: string; summary: string }> = []
       for (const block of blocks) {
@@ -1003,7 +1307,10 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
           }
         }
       }
-      if (postData.length === 0) return
+      if (postData.length === 0) {
+        setShowSubjectPicker(false)
+        return
+      }
       const res = await fetch('/api/admin/ai-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1011,9 +1318,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
       })
       if (!res.ok) throw new Error('Fehler beim Generieren')
       const data = await res.json()
-      if (data.text) setSubject(data.text)
+      if (Array.isArray(data.subjects) && data.subjects.length > 0) {
+        setSubjectOptions(data.subjects)
+      } else if (typeof data.text === 'string' && data.text.trim()) {
+        setSubjectOptions([data.text.trim()])
+      } else {
+        setShowSubjectPicker(false)
+        setToast({ type: 'error', message: 'AI-Generierung fehlgeschlagen.' })
+      }
     } catch (err) {
       console.error('[generateSubject]', err)
+      setShowSubjectPicker(false)
+      setToast({ type: 'error', message: 'AI-Generierung fehlgeschlagen.' })
     } finally {
       setGeneratingSubject(false)
     }
@@ -1125,11 +1441,30 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     setConfirmSend(false)
     setSending(true)
     try {
-      const result = await streamingSend(
-        { action: 'send', subject, blocks },
-        ({ sent, total }) => setToast({ type: 'info', message: `${sent} von ${total} gesendet…` })
-      )
-      setToast({ type: 'success', message: `Erfolgreich an ${result.sent} Empfänger versendet.` })
+      const audiencePayload = audienceFilter
+        ? { tags: audienceFilter.tags, minSignal: audienceFilter.mode === 'high' ? 5 : 1 }
+        : undefined
+      if (useSto) {
+        const res = await fetch('/api/admin/newsletter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', subject, blocks, useSto: true, audienceFilter: audiencePayload }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Fehler beim Versenden.')
+        const earliest = data.earliest ? new Date(data.earliest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
+        const latest = data.latest ? new Date(data.latest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
+        setToast({
+          type: 'success',
+          message: `${data.enqueued} Mails geplant (${earliest} – ${latest}). ${data.pushed_now} sofort an Resend gesendet.`,
+        })
+      } else {
+        const result = await streamingSend(
+          { action: 'send', subject, blocks, audienceFilter: audiencePayload },
+          ({ sent, total }) => setToast({ type: 'info', message: `${sent} von ${total} gesendet…` })
+        )
+        setToast({ type: 'success', message: `Erfolgreich an ${result.sent} Empfänger versendet.` })
+      }
       goBackToPicker()
       loadData()
     } catch (err: unknown) {
@@ -1182,6 +1517,10 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     {
       id: 'automations', label: 'Automation', href: '/admin/newsletter/automations',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>,
+    },
+    {
+      id: 'emails', label: 'Templates', href: '/admin/newsletter/emails',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>,
     },
   ]
 
@@ -1400,6 +1739,12 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 </div>
               </div>
 
+              <EngagementPanel
+                slugs={[...usedSlugs]}
+                audienceMode={audienceFilter?.mode ?? 'all'}
+                onAudienceChange={setAudienceFilter}
+              />
+
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_280px]">
                 {/* Left: Template slots */}
                 <div className="space-y-1">
@@ -1466,6 +1811,21 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 </div>
               </div>
 
+              <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useSto}
+                  onChange={(e) => setUseSto(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 cursor-pointer"
+                />
+                <span className="flex-1">
+                  <span className="block text-sm font-medium text-[var(--text)]">Send-Time Optimization</span>
+                  <span className="block text-xs text-[var(--text-muted)]">
+                    Empfänger mit Profil bekommen die Mail zu ihrer persönlichen Lieblingszeit (gelernt aus bisherigen Öffnungen). Alle anderen erhalten sie sofort.
+                  </span>
+                </span>
+              </label>
+
               <div className="flex flex-wrap gap-3">
                 <button
                   onClick={handleSaveDraft}
@@ -1495,7 +1855,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 >
                   {sending
                     ? 'Wird versendet…'
-                    : `An ${confirmedCount} Abonnent${confirmedCount !== 1 ? 'en' : ''} senden`}
+                    : `An ${audienceCount} Abonnent${audienceCount !== 1 ? 'en' : ''} senden${audienceFilter ? ' (Segment)' : ''}`}
                 </button>
               </div>
             </div>
@@ -1551,6 +1911,11 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} initialAutomationId={automationId} />
       )}
 
+      {/* --- Email Templates Tab --------------------------------- */}
+      {tab === 'emails' && (
+        <EmailTemplatesTab />
+      )}
+
       {/* --- Toast ----------------------------------------------- */}
       {toast && (
         <div className="fixed inset-x-0 top-6 z-[9999] flex justify-center pointer-events-none">
@@ -1584,9 +1949,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
             <p className="mb-1 text-sm text-[var(--text-secondary)]">
               Bist du sicher, dass du den Newsletter versenden möchtest?
             </p>
-            <p className="mb-6 text-sm font-medium text-[var(--text)]">
-              &laquo;{subject}&raquo; an {confirmedCount} Abonnent{confirmedCount !== 1 ? 'en' : ''}
+            <p className="mb-2 text-sm font-medium text-[var(--text)]">
+              &laquo;{subject}&raquo; an {audienceCount} Abonnent{audienceCount !== 1 ? 'en' : ''}
             </p>
+            {audienceFilter && (
+              <p className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                Segment: <span className="font-medium text-[var(--text)]">
+                  {audienceFilter.mode === 'high' ? 'Nur hoch interessiert' : 'Mit Interesse an diesen Tags'}
+                </span>
+                {' '}({audienceFilter.tags.join(', ')})
+              </p>
+            )}
+            {!audienceFilter && <div className="mb-6" />}
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setConfirmSend(false)}
@@ -1635,6 +2009,77 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 className="rounded-full bg-amber-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-50"
               >
                 Test senden
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Subject Picker Modal ------------------------------- */}
+      {showSubjectPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl backdrop-blur-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text)]">Betreffzeile wählen</h3>
+              <button
+                onClick={() => setShowSubjectPicker(false)}
+                className="rounded-lg p-1 text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                aria-label="Schliessen"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {generatingSubject && subjectOptions.length === 0 ? (
+              <div className="space-y-2">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="h-12 animate-pulse rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]"
+                  />
+                ))}
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {subjectOptions.map((option, i) => (
+                  <li key={i}>
+                    <button
+                      onClick={() => {
+                        setSubject(option)
+                        setShowSubjectPicker(false)
+                      }}
+                      className="group flex w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-left text-sm text-[var(--text)] transition-colors hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20"
+                    >
+                      <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--background-elevated)] text-[10px] font-semibold text-[var(--text-secondary)] group-hover:bg-primary-600 group-hover:text-white">
+                        {i + 1}
+                      </span>
+                      <span className="flex-1">{option}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <button
+                onClick={generateSubject}
+                disabled={generatingSubject || blocks.length === 0}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+              >
+                {generatingSubject ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                ) : (
+                  <span>↻</span>
+                )}
+                {generatingSubject ? 'Generiere…' : 'Neu generieren'}
+              </button>
+              <button
+                onClick={() => setShowSubjectPicker(false)}
+                className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+              >
+                Abbrechen
               </button>
             </div>
           </div>

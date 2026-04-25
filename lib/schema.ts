@@ -32,6 +32,7 @@ export const contentItems = sqliteTable('content_items', {
   summary: text('summary'),
   image: text('image'),
   date: text('date'),
+  tagsJson: text('tags_json').notNull().default('[]'),
   published: integer('published').notNull().default(1),
   syncedAt: text('synced_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
@@ -249,6 +250,98 @@ export const rateLimits = sqliteTable('rate_limits', {
 }, (table) => [
   uniqueIndex('idx_rl_key_window').on(table.key, table.windowStart),
   index('idx_rl_key').on(table.key),
+])
+
+// ─── Subscriber Tag Click Signals (Auto-Tagging via Klick-Schwellenwert) ──
+
+export const subscriberTagSignals = sqliteTable('subscriber_tag_signals', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  siteId: text('site_id').notNull(),
+  subscriberEmail: text('subscriber_email').notNull(),
+  tag: text('tag').notNull(),
+  clickCount: integer('click_count').notNull().default(0),
+  applied: integer('applied').notNull().default(0),
+  firstSeenAt: text('first_seen_at').notNull().default(sql`(datetime('now'))`),
+  lastSeenAt: text('last_seen_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('idx_sts_unique').on(table.siteId, table.subscriberEmail, table.tag),
+  index('idx_sts_email').on(table.siteId, table.subscriberEmail),
+])
+
+// ─── Subscriber Open Signals (Send-Time Optimization Rohdaten) ─────────
+
+export const subscriberOpenSignals = sqliteTable('subscriber_open_signals', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  siteId: text('site_id').notNull(),
+  subscriberEmail: text('subscriber_email').notNull(),
+  openedAtUtc: text('opened_at_utc').notNull(),
+  hourLocal: integer('hour_local').notNull(),
+  weekday: integer('weekday').notNull(),
+  tzOffsetMinutes: integer('tz_offset_minutes').notNull().default(60),
+  source: text('source').notNull().default('opened').$type<'opened' | 'clicked'>(),
+  isBotOpen: integer('is_bot_open').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_sos_email').on(table.siteId, table.subscriberEmail),
+  index('idx_sos_recent').on(table.siteId, table.subscriberEmail, table.openedAtUtc),
+])
+
+// ─── Subscriber Send-Time Profile (berechnet) ──────────────────────────
+
+export const subscriberSendTimeProfile = sqliteTable('subscriber_send_time_profile', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  siteId: text('site_id').notNull(),
+  subscriberEmail: text('subscriber_email').notNull(),
+  bestHourLocal: integer('best_hour_local').notNull(),
+  secondHourLocal: integer('second_hour_local'),
+  preferredWeekday: integer('preferred_weekday'),
+  sampleSize: integer('sample_size').notNull().default(0),
+  confidence: text('confidence').notNull().default('low').$type<'low' | 'medium' | 'high'>(),
+  tzOffsetMinutes: integer('tz_offset_minutes').notNull().default(60),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('idx_sstp_unique').on(table.siteId, table.subscriberEmail),
+])
+
+// ─── Scheduled Sends (per-recipient Versand-Queue) ─────────────────────
+
+export const scheduledSends = sqliteTable('scheduled_sends', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sendId: integer('send_id').notNull().references(() => newsletterSends.id, { onDelete: 'cascade' }),
+  siteId: text('site_id').notNull(),
+  email: text('email').notNull(),
+  token: text('token').notNull(),
+  scheduledAtUtc: text('scheduled_at_utc').notNull(),
+  status: text('status').notNull().default('pending').$type<'pending' | 'pushed' | 'sent' | 'failed' | 'cancelled'>(),
+  resendEmailId: text('resend_email_id'),
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  pushedAt: text('pushed_at'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_ss_send').on(table.sendId),
+  index('idx_ss_due').on(table.status, table.scheduledAtUtc),
+  index('idx_ss_resend').on(table.resendEmailId),
+])
+
+// ─── Subscriber Engagement Score (für Re-Engagement + Listen-Hygiene) ──
+
+export const subscriberEngagement = sqliteTable('subscriber_engagement', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  siteId: text('site_id').notNull(),
+  subscriberEmail: text('subscriber_email').notNull(),
+  score: integer('score').notNull().default(0),
+  tier: text('tier').notNull().default('cold').$type<'active' | 'moderate' | 'dormant' | 'cold'>(),
+  sends90d: integer('sends_90d').notNull().default(0),
+  opens90d: integer('opens_90d').notNull().default(0),
+  clicks90d: integer('clicks_90d').notNull().default(0),
+  lastOpenAt: text('last_open_at'),
+  lastClickAt: text('last_click_at'),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('idx_se_unique').on(table.siteId, table.subscriberEmail),
+  index('idx_se_tier').on(table.siteId, table.tier),
+  index('idx_se_score').on(table.siteId, table.score),
 ])
 
 // ─── Subscriber Tags (für Tag-Node + Condition) ────────────────────────

@@ -1,4 +1,8 @@
 import { processGraphRuns } from '@/lib/graph-processor'
+import { runInactivityTriggers, runEngagementTriggers } from '@/lib/graph-automation'
+import { pushDueSendsToResend } from '@/lib/scheduled-sends'
+import { recomputeAllEngagement } from '@/lib/engagement'
+import { getAllSites } from '@/lib/site-config'
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET
@@ -11,10 +15,29 @@ export async function GET(request: Request) {
   }
 
   try {
+    const triggers = await runInactivityTriggers()
+    const engagementTriggers = await runEngagementTriggers()
     const results = await processGraphRuns()
+    const scheduled = await pushDueSendsToResend()
+
+    // Engagement-Score nur 1x täglich (zwischen 03:00-03:59 UTC) recomputen — sonst zu teuer
+    const utcHour = new Date().getUTCHours()
+    let engagementUpdated = 0
+    if (utcHour === 3) {
+      const sites = await getAllSites()
+      for (const site of sites) {
+        const r = await recomputeAllEngagement(site.id)
+        engagementUpdated += r.updated
+      }
+    }
+
     return Response.json({
+      triggers,
+      engagement_triggers: engagementTriggers,
       processed: results.length,
       results,
+      scheduled,
+      engagement_updated: engagementUpdated,
     })
   } catch (err: unknown) {
     console.error('[cron/automation-processor] Error:', err)

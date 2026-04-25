@@ -17,9 +17,13 @@ import {
 import '@xyflow/react/dist/style.css'
 import { nodeTypes } from './nodes/AllNodes'
 import NodeConfigPanel from './NodeConfigPanel'
+import PlusEdge, { type PlusEdgeData } from './edges/PlusEdge'
+import LeafPlusButtons from './edges/LeafPlusButtons'
 import type { GraphNode, GraphEdge, NodeConfig, NodeType } from '@/lib/graph-types'
 import type { SiteConfig } from '@/lib/site-config'
 import { toReactFlowGraph } from '@/lib/graph-utils'
+
+const edgeTypes = { plus: PlusEdge }
 
 interface Post {
   slug: string; title: string; summary: string; image: string | null; date: string
@@ -163,7 +167,7 @@ export default function GraphEditor({
       target: connection.target!,
       sourceHandle: connection.sourceHandle ?? undefined,
       label: connection.sourceHandle === 'yes' ? 'ja' : connection.sourceHandle === 'no' ? 'nein' : undefined,
-      type: 'smoothstep',
+      type: 'plus',
     }
     setEdges((eds) => addEdge(newEdge, eds))
     triggerAutoSave()
@@ -204,6 +208,87 @@ export default function GraphEditor({
     triggerAutoSave()
   }
 
+  const handleInsertNodeOnEdge = useCallback((edgeId: string, type: NodeType) => {
+    const edge = edgesRef.current.find((e) => e.id === edgeId)
+    if (!edge) return
+    const sourceNode = nodesRef.current.find((n) => n.id === edge.source)
+    const targetNode = nodesRef.current.find((n) => n.id === edge.target)
+    if (!sourceNode || !targetNode) return
+
+    const x = Math.round((sourceNode.position.x + targetNode.position.x) / 2)
+    const y = Math.round((sourceNode.position.y + targetNode.position.y) / 2)
+
+    const newNodeId = crypto.randomUUID()
+    const newNode: Node = {
+      id: newNodeId,
+      type,
+      position: { x, y },
+      data: { config: NEW_NODE_DEFAULTS[type], nodeType: type },
+    }
+
+    const upstream: Edge = {
+      id: crypto.randomUUID(),
+      source: edge.source,
+      target: newNodeId,
+      sourceHandle: edge.sourceHandle,
+      label: edge.label,
+      type: 'plus',
+    }
+    const downstream: Edge = {
+      id: crypto.randomUUID(),
+      source: newNodeId,
+      target: edge.target,
+      sourceHandle: type === 'condition' ? 'yes' : undefined,
+      label: type === 'condition' ? 'ja' : undefined,
+      type: 'plus',
+    }
+
+    setNodes((nds) => [...nds, newNode])
+    setEdges((eds) => [...eds.filter((e) => e.id !== edgeId), upstream, downstream])
+    setSelectedNodeId(newNodeId)
+    triggerAutoSave()
+  }, [triggerAutoSave])
+
+  const handleInsertAfterNode = useCallback((nodeId: string, sourceHandle: 'yes' | 'no' | null, type: NodeType) => {
+    const sourceNode = nodesRef.current.find((n) => n.id === nodeId)
+    if (!sourceNode) return
+
+    const x = sourceNode.position.x
+    const y = sourceNode.position.y + 150
+
+    const newNodeId = crypto.randomUUID()
+    const newNode: Node = {
+      id: newNodeId,
+      type,
+      position: { x, y },
+      data: { config: NEW_NODE_DEFAULTS[type], nodeType: type },
+    }
+
+    const newEdge: Edge = {
+      id: crypto.randomUUID(),
+      source: nodeId,
+      target: newNodeId,
+      sourceHandle: sourceHandle ?? undefined,
+      label: sourceHandle === 'yes' ? 'ja' : sourceHandle === 'no' ? 'nein' : undefined,
+      type: 'plus',
+    }
+
+    setNodes((nds) => [...nds, newNode])
+    setEdges((eds) => [...eds, newEdge])
+    setSelectedNodeId(newNodeId)
+    triggerAutoSave()
+  }, [triggerAutoSave])
+
+  const edgeData: PlusEdgeData = useMemo(() => ({
+    onInsert: handleInsertNodeOnEdge,
+    addableTypes: ADDABLE_TYPES,
+  }), [handleInsertNodeOnEdge])
+
+  const edgesWithData = useMemo<Edge[]>(
+    () => edges.map((e) => ({ ...e, type: 'plus', data: edgeData })),
+    [edges, edgeData],
+  )
+
   // ── Render ─────────────────────────────────────────────────────────
 
   return (
@@ -212,19 +297,25 @@ export default function GraphEditor({
       <div className="absolute inset-0">
         <ReactFlow
           nodes={nodes}
-          edges={edges}
+          edges={edgesWithData}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeClick={handleNodeClick}
           onPaneClick={handlePaneClick}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           fitView
           fitViewOptions={{ padding: 0.3 }}
           proOptions={{ hideAttribution: true }}
         >
           <Background color="var(--border)" gap={20} />
           <Controls showInteractive={false} />
+          <LeafPlusButtons
+            edges={edges}
+            addableTypes={ADDABLE_TYPES}
+            onInsertAfter={handleInsertAfterNode}
+          />
         </ReactFlow>
       </div>
 

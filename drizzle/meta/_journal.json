@@ -29,6 +29,27 @@
       "when": 1775598971621,
       "tag": "0003_security_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777126019969,
+      "tag": "0004_content_tags_and_signals",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1777130579784,
+      "tag": "0005_numerous_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777132194186,
+      "tag": "0006_slow_medusa",
+      "breakpoints": true
     }
   ]
 }

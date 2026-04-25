@@ -1,6 +1,9 @@
 import { Webhook } from 'svix'
-import { updateRecipientEvent } from '@/lib/newsletter'
+import { updateRecipientEvent, getRecipientByResendId } from '@/lib/newsletter'
 import { updateAutomationSendEvent } from '@/lib/automation'
+import { enrollOnLinkClick } from '@/lib/graph-automation'
+import { applyClickTagging } from '@/lib/auto-tag'
+import { recordOpenSignal } from '@/lib/send-time-optimization'
 
 interface ResendWebhookPayload {
   type: string
@@ -54,6 +57,13 @@ export async function POST(request: Request) {
       case 'email.delivered':
         await updateRecipientEvent(emailId, 'delivered', created_at)
         break
+      case 'email.opened': {
+        const recipient = await getRecipientByResendId(emailId)
+        if (recipient) {
+          await recordOpenSignal(recipient.site_id, recipient.email, created_at, 'opened', emailId)
+        }
+        break
+      }
       case 'email.clicked':
         await updateRecipientEvent(emailId, 'clicked', created_at, { click_url: data.click?.link })
         break
@@ -70,6 +80,16 @@ export async function POST(request: Request) {
       await updateAutomationSendEvent(emailId, automationEvent, created_at, {
         bounce_type: data.bounce?.bounce_type,
       })
+    }
+
+    // Click events: fire link_clicked trigger and run auto-tagging
+    if (type === 'email.clicked' && data.click?.link) {
+      const recipient = await getRecipientByResendId(emailId)
+      if (recipient) {
+        await enrollOnLinkClick(recipient.site_id, recipient.email, data.click.link)
+        await applyClickTagging(recipient.site_id, recipient.email, data.click.link)
+        await recordOpenSignal(recipient.site_id, recipient.email, created_at, 'clicked', emailId)
+      }
     }
   } catch (err) {
     console.error(`[webhook/resend] Error processing ${type}:`, err)

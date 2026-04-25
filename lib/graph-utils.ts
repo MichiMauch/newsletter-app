@@ -110,9 +110,9 @@ export function toReactFlowGraph(
       id: e.id,
       source: e.source_node_id,
       target: e.target_node_id,
-      label: e.edge_label ?? undefined,
+      label: e.edge_label === 'yes' ? 'ja' : e.edge_label === 'no' ? 'nein' : undefined,
       sourceHandle: e.edge_label ?? undefined,
-      type: 'smoothstep',
+      type: 'plus',
     })),
   }
 }

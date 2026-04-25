@@ -53,11 +53,12 @@ export async function getContentItemsBySlugs(siteId: string, slugs: string[]): P
 
 export async function upsertContentItems(
   siteId: string,
-  items: { slug: string; title: string; summary?: string; image?: string; date?: string; published?: boolean }[],
+  items: { slug: string; title: string; summary?: string; image?: string; date?: string; tags?: string[]; published?: boolean }[],
 ): Promise<number> {
   const db = getDb()
   let count = 0
   for (const item of items) {
+    const tagsJson = JSON.stringify(Array.isArray(item.tags) ? item.tags : [])
     await db.insert(contentItems)
       .values({
         siteId,
@@ -66,6 +67,7 @@ export async function upsertContentItems(
         summary: item.summary ?? null,
         image: item.image ?? null,
         date: item.date ?? null,
+        tagsJson,
         published: item.published !== false ? 1 : 0,
         syncedAt: sql`datetime('now')`,
       })
@@ -76,6 +78,7 @@ export async function upsertContentItems(
           summary: sql`excluded.summary`,
           image: sql`excluded.image`,
           date: sql`excluded.date`,
+          tagsJson: sql`excluded.tags_json`,
           published: sql`excluded.published`,
           syncedAt: sql`datetime('now')`,
         },
@@ -83,4 +86,21 @@ export async function upsertContentItems(
     count++
   }
   return count
+}
+
+export async function findPostBySlugCandidates(
+  siteId: string,
+  slugs: string[],
+): Promise<{ slug: string; tags: string[] } | null> {
+  if (slugs.length === 0) return null
+  const db = getDb()
+  const rows = await db
+    .select({ slug: contentItems.slug, tagsJson: contentItems.tagsJson })
+    .from(contentItems)
+    .where(and(eq(contentItems.siteId, siteId), inArray(contentItems.slug, slugs), eq(contentItems.published, 1)))
+    .limit(1)
+  if (rows.length === 0) return null
+  let tags: string[] = []
+  try { tags = JSON.parse(rows[0].tagsJson) as string[] } catch { /* ignore */ }
+  return { slug: rows[0].slug, tags }
 }

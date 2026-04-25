@@ -20,7 +20,7 @@ import {
   type NewsletterBlock,
   type PostRef,
 } from '@/lib/newsletter-blocks'
-import type { GraphNode, GraphEdge, EmailNodeConfig, LastNewsletterNodeConfig } from '@/lib/graph-types'
+import type { GraphNode, GraphEdge, EmailNodeConfig, LastNewsletterNodeConfig, NodeConfig, NodeType } from '@/lib/graph-types'
 
 const SITE_ID = 'kokomo' // TODO: from session/query param when multi-site
 
@@ -75,7 +75,45 @@ export async function POST(request: Request) {
 
     case 'create-from-wizard': {
       const id = await createAutomation(SITE_ID, body.name, body.trigger_type || 'subscriber_confirmed', body.trigger_config)
-      // Build graph: trigger node + chain from preset steps
+
+      // ─── Pfad A: kompletter Graph aus Preset (mit Verzweigung) ───
+      if (body.preset_graph && Array.isArray(body.preset_graph.nodes) && Array.isArray(body.preset_graph.edges)) {
+        const keyToUuid = new Map<string, string>()
+        const nodes: Array<Omit<GraphNode, 'automation_id' | 'created_at' | 'updated_at'>> = []
+        for (const n of body.preset_graph.nodes) {
+          const uuid = crypto.randomUUID()
+          keyToUuid.set(n.key, uuid)
+          // condition.email_node_id muss vom logical key auf UUID gemappt werden
+          const config = { ...n.config } as NodeConfig & { email_node_id?: string }
+          if (n.node_type === 'condition' && typeof config.email_node_id === 'string') {
+            const mapped = keyToUuid.get(config.email_node_id)
+            if (mapped) config.email_node_id = mapped
+          }
+          nodes.push({
+            id: uuid,
+            node_type: n.node_type as NodeType,
+            config,
+            position_x: n.position_x ?? 120,
+            position_y: n.position_y ?? 40,
+          })
+        }
+        const edges: Array<Omit<GraphEdge, 'automation_id' | 'created_at'>> = []
+        for (const e of body.preset_graph.edges) {
+          const src = keyToUuid.get(e.source)
+          const tgt = keyToUuid.get(e.target)
+          if (!src || !tgt) continue
+          edges.push({
+            id: crypto.randomUUID(),
+            source_node_id: src,
+            target_node_id: tgt,
+            edge_label: (e.label ?? null) as 'yes' | 'no' | null,
+          })
+        }
+        await saveGraph(id, nodes, edges)
+        return Response.json({ id })
+      }
+
+      // ─── Pfad B: lineare Steps (Legacy) ───
       const triggerId = crypto.randomUUID()
       let parsedTriggerConfig = {}
       try {

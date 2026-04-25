@@ -8,6 +8,7 @@ import type { SiteConfig } from '@/lib/site-config'
 import type { Automation } from './automation/types'
 import type { GraphNode, GraphEdge } from '@/lib/graph-types'
 import ConfirmModal from './ConfirmModal'
+import { AUTOMATION_PRESETS, type AutomationPreset } from './automation/presets'
 
 // React Flow is heavy — load client-side only
 const GraphEditor = dynamic(() => import('./automation/graph/GraphEditor'), { ssr: false })
@@ -151,24 +152,33 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
   )
 
   const [creating, setCreating] = useState(false)
+  const [showPresetPicker, setShowPresetPicker] = useState(false)
 
-  const handleCreateNew = async () => {
+  const handleCreateFromPreset = async (preset: AutomationPreset) => {
     if (creating) return
     setCreating(true)
+    setShowPresetPicker(false)
     try {
-      const result = await api('POST', '/api/admin/automations', {
+      const body: Record<string, unknown> = {
         action: 'create-from-wizard',
-        name: 'Neue Automatisierung',
-        trigger_type: 'subscriber_confirmed',
-        trigger_config: '{}',
-        steps: [],
-      })
+        name: preset.defaultName || 'Neue Automatisierung',
+        trigger_type: preset.trigger,
+        trigger_config: JSON.stringify(preset.triggerConfig ?? {}),
+      }
+      if (preset.graph) {
+        body.preset_graph = preset.graph
+      } else {
+        body.steps = preset.steps
+      }
+      const result = await api('POST', '/api/admin/automations', body)
       router.push(`/admin/newsletter/automations/${result.id}`)
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Fehler')
     }
     setCreating(false)
   }
+
+  const handleCreateNew = () => setShowPresetPicker(true)
 
   // ── List ─────────────────────────────────────────────────────────────
   if (!selectedId) {
@@ -213,6 +223,40 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
           </div>
         )}
         {toastEl}
+        {showPresetPicker && (
+          <div
+            className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setShowPresetPicker(false)}
+          >
+            <div
+              className="w-full max-w-2xl border border-[var(--border)] bg-[var(--background-card)] p-6 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-[var(--text)]">Vorlage wählen</h3>
+                <button
+                  onClick={() => setShowPresetPicker(false)}
+                  className="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid gap-3">
+                {AUTOMATION_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleCreateFromPreset(p)}
+                    disabled={creating}
+                    className="border border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-left transition-colors hover:border-[var(--color-primary)] disabled:opacity-50"
+                  >
+                    <div className="font-medium text-[var(--text)]">{p.label}</div>
+                    <div className="mt-1 text-xs text-[var(--text-secondary)]">{p.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

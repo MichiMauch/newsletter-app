@@ -282,6 +282,136 @@ export async function getPendingGraphRuns(): Promise<GraphRun[]> {
   }))
 }
 
+// ─── Trigger Firing: link_clicked ──────────────────────────────────────
+
+export async function enrollOnLinkClick(siteId: string, email: string, url: string): Promise<number> {
+  const automations = await getAutomationsByTriggerType(siteId, 'link_clicked')
+  let count = 0
+  for (const a of automations) {
+    const cfg = a.config as { trigger_type?: string; url_contains?: string }
+    const needle = (cfg.url_contains ?? '').trim()
+    if (needle && !url.includes(needle)) continue
+    const id = await enrollInGraph(a.automationId, email, `link_clicked:${url}`)
+    if (id) count++
+  }
+  return count
+}
+
+// ─── Trigger Firing: no_activity_days (Cron-Scan) ──────────────────────
+
+export interface InactivityScanResult {
+  automationId: number
+  enrolled: number
+}
+
+export async function runInactivityTriggers(): Promise<InactivityScanResult[]> {
+  const db = getDb()
+  // Step 1: find all (automation_id, site_id, days) tuples for active no_activity_days automations
+  const triggerRows = await db.run(sql`
+    SELECT a.id AS automation_id, a.site_id, n.config_json
+    FROM email_automations a
+    JOIN automation_nodes n ON n.automation_id = a.id AND n.node_type = 'trigger'
+    WHERE a.active = 1
+  `)
+
+  const targets: Array<{ automationId: number; siteId: string; days: number }> = []
+  for (const r of triggerRows.rows ?? []) {
+    try {
+      const cfg = JSON.parse(r.config_json as string) as { trigger_type?: string; days?: number }
+      if (cfg.trigger_type !== 'no_activity_days') continue
+      const days = Number(cfg.days)
+      if (!Number.isFinite(days) || days <= 0) continue
+      targets.push({ automationId: r.automation_id as number, siteId: r.site_id as string, days })
+    } catch { /* skip malformed */ }
+  }
+
+  const results: InactivityScanResult[] = []
+  for (const t of targets) {
+    const cutoff = new Date(Date.now() - t.days * 86400 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+    // Confirmed subscribers whose last click is before the cutoff (or who never clicked
+    // and whose confirmedAt is before the cutoff), and who are not already enrolled.
+    const candidates = await db.run(sql`
+      SELECT s.email
+      FROM newsletter_subscribers s
+      LEFT JOIN newsletter_sends sn ON sn.site_id = s.site_id
+      LEFT JOIN newsletter_recipients nr ON nr.send_id = sn.id AND nr.email = s.email
+      WHERE s.site_id = ${t.siteId}
+        AND s.status = 'confirmed'
+        AND NOT EXISTS (
+          SELECT 1 FROM email_automation_enrollments e
+          WHERE e.automation_id = ${t.automationId} AND e.subscriber_email = s.email
+        )
+      GROUP BY s.email, s.confirmed_at
+      HAVING COALESCE(MAX(nr.clicked_at), s.confirmed_at) < ${cutoff}
+    `)
+
+    let enrolled = 0
+    for (const r of candidates.rows ?? []) {
+      const id = await enrollInGraph(t.automationId, r.email as string, `no_activity:${t.days}d`)
+      if (id) enrolled++
+    }
+    results.push({ automationId: t.automationId, enrolled })
+  }
+
+  return results
+}
+
+// ─── Trigger Firing: engagement_below (Cron-Scan) ──────────────────────
+
+export interface EngagementScanResult {
+  automationId: number
+  threshold: number
+  enrolled: number
+}
+
+export async function runEngagementTriggers(): Promise<EngagementScanResult[]> {
+  const db = getDb()
+  const triggerRows = await db.run(sql`
+    SELECT a.id AS automation_id, a.site_id, n.config_json
+    FROM email_automations a
+    JOIN automation_nodes n ON n.automation_id = a.id AND n.node_type = 'trigger'
+    WHERE a.active = 1
+  `)
+
+  const targets: Array<{ automationId: number; siteId: string; threshold: number }> = []
+  for (const r of triggerRows.rows ?? []) {
+    try {
+      const cfg = JSON.parse(r.config_json as string) as { trigger_type?: string; threshold?: number }
+      if (cfg.trigger_type !== 'engagement_below') continue
+      const threshold = Number(cfg.threshold)
+      if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 100) continue
+      targets.push({ automationId: r.automation_id as number, siteId: r.site_id as string, threshold })
+    } catch { /* skip malformed */ }
+  }
+
+  const results: EngagementScanResult[] = []
+  for (const t of targets) {
+    // Subscriber unter threshold, nur 'confirmed', noch nicht enrolled
+    const candidates = await db.run(sql`
+      SELECT se.subscriber_email AS email
+      FROM subscriber_engagement se
+      JOIN newsletter_subscribers s ON s.email = se.subscriber_email AND s.site_id = se.site_id
+      WHERE se.site_id = ${t.siteId}
+        AND se.score < ${t.threshold}
+        AND se.sends_90d > 0
+        AND s.status = 'confirmed'
+        AND NOT EXISTS (
+          SELECT 1 FROM email_automation_enrollments e
+          WHERE e.automation_id = ${t.automationId} AND e.subscriber_email = se.subscriber_email
+        )
+    `)
+
+    let enrolled = 0
+    for (const r of candidates.rows ?? []) {
+      const id = await enrollInGraph(t.automationId, r.email as string, `engagement_below:${t.threshold}`)
+      if (id) enrolled++
+    }
+    results.push({ automationId: t.automationId, threshold: t.threshold, enrolled })
+  }
+
+  return results
+}
+
 export async function getNode(nodeId: string): Promise<GraphNode | null> {
   const db = getDb()
   const rows = await db.select().from(automationNodes).where(eq(automationNodes.id, nodeId)).limit(1)

@@ -1,8 +1,9 @@
-export type TriggerType = 'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked'
+export type TriggerType = 'subscriber_confirmed' | 'manual' | 'no_activity_days' | 'link_clicked' | 'engagement_below'
 
 export interface TriggerConfig {
   days?: number
   url_contains?: string
+  threshold?: number
 }
 
 export const TRIGGER_LABELS: Record<TriggerType, string> = {
@@ -10,6 +11,7 @@ export const TRIGGER_LABELS: Record<TriggerType, string> = {
   manual: 'Manuell einschreiben',
   no_activity_days: 'Inaktivität (kein Klick)',
   link_clicked: 'Nach Klick auf Link',
+  engagement_below: 'Engagement-Score unter Schwelle',
 }
 
 export const TRIGGER_DESCRIPTIONS: Record<TriggerType, string> = {
@@ -17,6 +19,7 @@ export const TRIGGER_DESCRIPTIONS: Record<TriggerType, string> = {
   manual: 'Du schreibst Abonnenten manuell in diese Automation ein.',
   no_activity_days: 'Wird ausgelöst wenn ein Abonnent eine bestimmte Anzahl Tage keinen Link geklickt hat.',
   link_clicked: 'Wird ausgelöst wenn ein Abonnent auf einen bestimmten Link in einem Newsletter klickt.',
+  engagement_below: 'Wird ausgelöst wenn der Engagement-Score eines Abonnenten unter eine Schwelle fällt (für Re-Engagement / Win-Back).',
 }
 
 export interface Automation {

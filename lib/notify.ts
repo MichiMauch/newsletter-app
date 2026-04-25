@@ -120,6 +120,7 @@ export async function sendMultiBlockNewsletterEmail(
     subject: string
     blocks: NewsletterBlock[]
     postsMap: Record<string, PostRef>
+    scheduledAt?: string // ISO-8601, an Resend durchgereicht für Send-Time Optimization
   },
 ): Promise<{ resendEmailId: string | null }> {
   const siteUrl = process.env.SITE_URL || site.site_url
@@ -148,6 +149,7 @@ export async function sendMultiBlockNewsletterEmail(
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
+      ...(data.scheduledAt ? { scheduledAt: data.scheduledAt } : {}),
     })
 
     return { resendEmailId: result.data?.id ?? null }
