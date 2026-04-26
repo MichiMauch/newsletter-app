@@ -29,6 +29,7 @@ import {
 import { getList, getListEmailsForSend } from '@/lib/lists'
 import { bootstrapProfilesFromClicks } from '@/lib/send-time-optimization'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
+import { isValidEmail } from '@/lib/validators'
 
 const SEND_DELAY_MS = 800
 const MAX_RETRIES = 2
@@ -164,22 +165,23 @@ export async function actionTestSend(body: NewsletterActionBody, site: SiteConfi
   if (!subject || !blocks || !Array.isArray(blocks) || blocks.length === 0) {
     return jsonError('subject und blocks sind erforderlich.', 400)
   }
-  if (!testEmail || typeof testEmail !== 'string') {
-    return jsonError('testEmail ist erforderlich.', 400)
+  if (!isValidEmail(testEmail)) {
+    return jsonError('Ungültige Test-E-Mail-Adresse.', 400)
   }
+  const recipient = testEmail.trim().toLowerCase()
 
   const slugs = collectSlugs(blocks)
   const postsMap = await getContentItemsBySlugs(SITE_ID, [...slugs])
 
   await sendMultiBlockNewsletterEmail(site, {
-    email: testEmail,
+    email: recipient,
     unsubscribeToken: 'test',
     subject: `[TEST] ${subject}`,
     blocks,
     postsMap,
   })
 
-  return jsonOk({ ok: true, sent: 1, testEmail })
+  return jsonOk({ ok: true, sent: 1, testEmail: recipient })
 }
 
 export async function actionRetryFailed(body: NewsletterActionBody, site: SiteConfig): Promise<Response> {

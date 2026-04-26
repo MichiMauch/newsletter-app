@@ -164,11 +164,24 @@ export async function updateRecipientEvent(
 ): Promise<void> {
   const db = getDb()
 
-  const existing = await db.select({
-    id: newsletterRecipients.id, sendId: newsletterRecipients.sendId,
-    email: newsletterRecipients.email, status: newsletterRecipients.status,
-    clickCount: newsletterRecipients.clickCount,
-  }).from(newsletterRecipients).where(eq(newsletterRecipients.resendEmailId, resendEmailId)).limit(1)
+  // Join newsletter_sends to recover the site this recipient belongs to —
+  // bounce/complaint state must be scoped to the originating site so a webhook
+  // event for site A does not flip subscribers of site B who happen to share
+  // the same email (the schema's uniqueIndex on (siteId, email) explicitly
+  // allows the same address across sites).
+  const existing = await db
+    .select({
+      id: newsletterRecipients.id,
+      sendId: newsletterRecipients.sendId,
+      email: newsletterRecipients.email,
+      status: newsletterRecipients.status,
+      clickCount: newsletterRecipients.clickCount,
+      siteId: newsletterSends.siteId,
+    })
+    .from(newsletterRecipients)
+    .innerJoin(newsletterSends, eq(newsletterSends.id, newsletterRecipients.sendId))
+    .where(eq(newsletterRecipients.resendEmailId, resendEmailId))
+    .limit(1)
 
   if (existing.length === 0) return
 
@@ -224,25 +237,38 @@ export async function updateRecipientEvent(
       if (metadata?.bounce_type === 'hard') {
         await db.update(newsletterSubscribers)
           .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
-          .where(and(eq(newsletterSubscribers.email, recipient.email), eq(newsletterSubscribers.status, 'confirmed')))
+          .where(and(
+            eq(newsletterSubscribers.siteId, recipient.siteId),
+            eq(newsletterSubscribers.email, recipient.email),
+            eq(newsletterSubscribers.status, 'confirmed'),
+          ))
       } else {
         // Soft/unknown bounce: suspend after threshold in rolling window.
-        // Schwelle = 3 in 90 Tagen; Resend liefert bounce_type oft als undefined,
-        // daher zählen wir alles ausser explizit 'hard'.
+        // Schwelle = 3 in 90 Tagen, gezählt nur für DIESE Site — sonst könnte
+        // ein Webhook-Event für Site A die Schwelle für Site B überschreiten.
+        // Resend liefert bounce_type oft als undefined, daher zählen wir alles
+        // ausser explizit 'hard'.
         const SOFT_BOUNCE_THRESHOLD = 3
         const counted = await db.run(sql`
-          SELECT COUNT(*) AS count FROM newsletter_recipients
-          WHERE email = ${recipient.email}
-            AND status = 'bounced'
-            AND (bounce_type IS NULL OR bounce_type != 'hard')
-            AND bounced_at IS NOT NULL
-            AND bounced_at > datetime('now', '-90 days')
+          SELECT COUNT(*) AS count
+          FROM newsletter_recipients nr
+          JOIN newsletter_sends ns ON ns.id = nr.send_id
+          WHERE nr.email = ${recipient.email}
+            AND ns.site_id = ${recipient.siteId}
+            AND nr.status = 'bounced'
+            AND (nr.bounce_type IS NULL OR nr.bounce_type != 'hard')
+            AND nr.bounced_at IS NOT NULL
+            AND nr.bounced_at > datetime('now', '-90 days')
         `)
         const softCount = (counted.rows?.[0]?.count as number) ?? 0
         if (softCount >= SOFT_BOUNCE_THRESHOLD) {
           await db.update(newsletterSubscribers)
             .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
-            .where(and(eq(newsletterSubscribers.email, recipient.email), eq(newsletterSubscribers.status, 'confirmed')))
+            .where(and(
+              eq(newsletterSubscribers.siteId, recipient.siteId),
+              eq(newsletterSubscribers.email, recipient.email),
+              eq(newsletterSubscribers.status, 'confirmed'),
+            ))
         }
       }
       break
@@ -256,7 +282,11 @@ export async function updateRecipientEvent(
         .where(eq(newsletterSends.id, recipient.sendId))
       await db.update(newsletterSubscribers)
         .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
-        .where(and(eq(newsletterSubscribers.email, recipient.email), eq(newsletterSubscribers.status, 'confirmed')))
+        .where(and(
+          eq(newsletterSubscribers.siteId, recipient.siteId),
+          eq(newsletterSubscribers.email, recipient.email),
+          eq(newsletterSubscribers.status, 'confirmed'),
+        ))
       break
     }
   }

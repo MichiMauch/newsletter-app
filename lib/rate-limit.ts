@@ -1,5 +1,10 @@
 /**
- * Simple DB-backed rate limiter using sliding windows.
+ * DB-backed rate limiter with two-bucket sliding window.
+ *
+ * The original implementation used a fixed window aligned to the wall clock,
+ * which allowed a 2× burst at window boundaries. We now interpolate a
+ * weighted previous-bucket count into the current bucket, which approximates
+ * a true sliding window without per-event timestamp storage.
  */
 
 import { getDb } from './db'
@@ -13,6 +18,7 @@ interface RateLimitResult {
 
 /**
  * Check and increment a rate limit counter.
+ *
  * @param key - Unique identifier (e.g. "login:1.2.3.4")
  * @param maxRequests - Maximum requests per window
  * @param windowMs - Window size in milliseconds
@@ -25,11 +31,13 @@ export async function checkRateLimit(
   const db = getDb()
   const now = Date.now()
   const windowStart = Math.floor(now / windowMs) * windowMs
+  const prevWindowStart = windowStart - windowMs
 
-  // Clean old windows
-  await db.delete(rateLimits).where(lt(rateLimits.windowStart, windowStart))
+  // Prune anything older than the previous window — we still need the
+  // immediately previous window for the sliding-window calculation.
+  await db.delete(rateLimits).where(lt(rateLimits.windowStart, prevWindowStart))
 
-  // Upsert current window
+  // Increment the current bucket
   await db.insert(rateLimits)
     .values({ key, windowStart, count: 1 })
     .onConflictDoUpdate({
@@ -37,26 +45,63 @@ export async function checkRateLimit(
       set: { count: sql`${rateLimits.count} + 1` },
     })
 
-  // Read current count
-  const rows = await db.select({ count: rateLimits.count })
-    .from(rateLimits)
-    .where(and(eq(rateLimits.key, key), eq(rateLimits.windowStart, windowStart)))
-    .limit(1)
+  // Read current and previous bucket counts in parallel
+  const [currRows, prevRows] = await Promise.all([
+    db.select({ count: rateLimits.count })
+      .from(rateLimits)
+      .where(and(eq(rateLimits.key, key), eq(rateLimits.windowStart, windowStart)))
+      .limit(1),
+    db.select({ count: rateLimits.count })
+      .from(rateLimits)
+      .where(and(eq(rateLimits.key, key), eq(rateLimits.windowStart, prevWindowStart)))
+      .limit(1),
+  ])
 
-  const count = rows[0]?.count ?? 0
+  const currCount = currRows[0]?.count ?? 0
+  const prevCount = prevRows[0]?.count ?? 0
+
+  // Interpolate previous-window contribution by remaining time-fraction.
+  // If we are 30% into the current window, we count 70% of the prev bucket.
+  const elapsedFraction = (now - windowStart) / windowMs
+  const weightedCount = currCount + prevCount * (1 - elapsedFraction)
+
   return {
-    allowed: count <= maxRequests,
-    remaining: Math.max(0, maxRequests - count),
+    allowed: weightedCount <= maxRequests,
+    remaining: Math.max(0, maxRequests - Math.ceil(weightedCount)),
   }
 }
 
 /**
  * Extract client IP from request headers.
+ *
+ * Coolify/Traefik (and most reverse proxies) APPEND the real client IP to
+ * any inbound `X-Forwarded-For` rather than replacing it. The right-most
+ * entry is therefore the value the *first trusted proxy* observed; the
+ * left-most entry is attacker-supplied.
+ *
+ * We respect `TRUSTED_PROXY_HOPS` (defaults to 1) and pick the entry that
+ * many positions from the right.
  */
 export function getClientIp(request: Request): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    'unknown'
-  )
+  const hops = parseTrustedHops(process.env.TRUSTED_PROXY_HOPS)
+
+  const xff = request.headers.get('x-forwarded-for')
+  if (xff) {
+    const parts = xff.split(',').map((s) => s.trim()).filter(Boolean)
+    // pick the (hops)-th entry from the right; 1 hop ⇒ last entry
+    const idx = parts.length - hops
+    if (idx >= 0 && parts[idx]) return parts[idx]
+  }
+
+  // x-real-ip is single-valued — also platform-set, safer than left-XFF
+  const realIp = request.headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+
+  return 'unknown'
+}
+
+function parseTrustedHops(raw: string | undefined): number {
+  if (!raw) return 1
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 ? n : 1
 }

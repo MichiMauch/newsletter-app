@@ -2,9 +2,16 @@ import { createSubscriber } from '@/lib/newsletter'
 import { sendConfirmationEmail, sendAlreadySubscribedEmail } from '@/lib/notify'
 import { getSiteConfig } from '@/lib/site-config'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
+import { isValidEmail } from '@/lib/validators'
 
 const SUBSCRIBE_MAX_REQUESTS = 5
 const SUBSCRIBE_WINDOW_MS = 60 * 60 * 1000 // 1 hour
+
+// Per-email cap: stops "email bombing" where an attacker rotates source IPs
+// (or spoofs X-Forwarded-For) to flood a single victim address with
+// confirmation mails using our warmed-up sender domain.
+const SUBSCRIBE_EMAIL_MAX_REQUESTS = 3
+const SUBSCRIBE_EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000 // 24h
 
 const ALLOWED_ORIGINS = [
   'https://www.kokomo.house',
@@ -46,16 +53,23 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: 'Ungültige Site-ID.' }), { status: 400, headers })
     }
 
-    if (!email || typeof email !== 'string') {
+    if (!isValidEmail(email)) {
       return new Response(JSON.stringify({ error: 'Ungültige E-Mail-Adresse.' }), { status: 400, headers })
+    }
+    const normalized = email.trim().toLowerCase()
+
+    // Second-layer rate-limit keyed on the target email. Defends against
+    // email-bombing where the attacker rotates source IPs/XFF to flood a
+    // single victim address with confirmation mails.
+    const { allowed: emailAllowed } = await checkRateLimit(
+      `subscribe:email:${normalized}`,
+      SUBSCRIBE_EMAIL_MAX_REQUESTS,
+      SUBSCRIBE_EMAIL_WINDOW_MS,
+    )
+    if (!emailAllowed) {
+      return new Response(JSON.stringify({ error: 'Zu viele Anfragen. Bitte versuche es später erneut.' }), { status: 429, headers })
     }
 
-    const normalized = email.toLowerCase().trim()
-    // RFC 5321: max 254 chars, must have local@domain with at least one dot in domain
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (normalized.length > 254 || !emailRegex.test(normalized)) {
-      return new Response(JSON.stringify({ error: 'Ungültige E-Mail-Adresse.' }), { status: 400, headers })
-    }
     const result = await createSubscriber(siteId, normalized)
     const site = await getSiteConfig(siteId)
 
