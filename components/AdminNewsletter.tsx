@@ -11,6 +11,8 @@ import HistoryTab from './admin/HistoryTab'
 import BouncesTab from './admin/BouncesTab'
 import EmailTemplatesTab from './admin/EmailTemplatesTab'
 import LoginForm from './admin/LoginForm'
+import { useToast } from './ui/ToastProvider'
+import StatusPill from './ui/StatusPill'
 import EngagementTrendChart from './admin/charts/EngagementTrendChart'
 import SubscriberGrowthChart from './admin/charts/SubscriberGrowthChart'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
@@ -1170,7 +1172,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [showSubjectPicker, setShowSubjectPicker] = useState(false)
   const [audienceFilter, setAudienceFilter] = useState<AudienceFilter | null>(null)
   const [sending, setSending] = useState(false)
-  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+  const toast = useToast()
   const [showPreview, setShowPreview] = useState(false)
   const [confirmSend, setConfirmSend] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
@@ -1312,13 +1314,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     }
   }, [tab])
 
-  // Toast auto-dismiss
-  useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(null), 8000)
-    return () => clearTimeout(timer)
-  }, [toast])
-
   function selectTemplate(template: NewsletterTemplate) {
     setSelectedTemplate(template)
     setBlocks(blocksFromTemplate(template))
@@ -1368,12 +1363,12 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         setSubjectOptions([data.text.trim()])
       } else {
         setShowSubjectPicker(false)
-        setToast({ type: 'error', message: 'AI-Generierung fehlgeschlagen.' })
+        toast.error('AI-Generierung fehlgeschlagen.')
       }
     } catch (err) {
       console.error('[generateSubject]', err)
       setShowSubjectPicker(false)
-      setToast({ type: 'error', message: 'AI-Generierung fehlgeschlagen.' })
+      toast.error('AI-Generierung fehlgeschlagen.')
     } finally {
       setGeneratingSubject(false)
     }
@@ -1419,7 +1414,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         const updated = customTemplates.filter((t) => t.id !== id)
         setCustomTemplates(updated)
         saveCustomTemplates(updated)
-        setToast({ type: 'success', message: 'Template gelöscht.' })
+        toast.success('Template gelöscht.')
       },
     })
   }
@@ -1435,7 +1430,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     const updated = [draft, ...drafts]
     setDrafts(updated)
     saveDrafts(updated)
-    setToast({ type: 'success', message: 'Entwurf gespeichert.' })
+    toast.success('Entwurf gespeichert.')
   }
 
   function handleLoadDraft(draft: NewsletterDraft) {
@@ -1450,7 +1445,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     const updated = drafts.filter((d) => d.id !== id)
     setDrafts(updated)
     saveDrafts(updated)
-    setToast({ type: 'success', message: 'Entwurf gelöscht.' })
+    toast.success('Entwurf gelöscht.')
   }
 
   function handleSendClick() {
@@ -1458,11 +1453,11 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     if (scheduleMode === 'scheduled') {
       const date = parseScheduleLocal(scheduleLocal)
       if (!date) {
-        setToast({ type: 'error', message: 'Bitte ein gültiges Datum & Uhrzeit wählen.' })
+        toast.error('Bitte ein gültiges Datum & Uhrzeit wählen.')
         return
       }
       if (date.getTime() <= Date.now() + 60_000) {
-        setToast({ type: 'error', message: 'Geplanter Zeitpunkt muss in der Zukunft liegen.' })
+        toast.error('Geplanter Zeitpunkt muss in der Zukunft liegen.')
         return
       }
     }
@@ -1481,12 +1476,12 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
       })
       const data = await res.json()
       if (res.ok) {
-        setToast({ type: 'success', message: `Test-Newsletter an ${testEmail.trim()} gesendet.` })
+        toast.success(`Test-Newsletter an ${testEmail.trim()} gesendet.`)
       } else {
-        setToast({ type: 'error', message: data.error || 'Testversand fehlgeschlagen.' })
+        toast.error(data.error || 'Testversand fehlgeschlagen.')
       }
     } catch {
-      setToast({ type: 'error', message: 'Verbindung fehlgeschlagen.' })
+      toast.error('Verbindung fehlgeschlagen.')
     } finally {
       setSending(false)
     }
@@ -1518,15 +1513,9 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         const when = scheduledDate.toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })
         if (useSto) {
           const latest = data.latest ? new Date(data.latest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
-          setToast({
-            type: 'success',
-            message: `Newsletter geplant ab ${when} mit STO (${data.enqueued} Empfänger, letzter spätestens ${latest}).`,
-          })
+          toast.success(`Newsletter geplant ab ${when} mit STO (${data.enqueued} Empfänger, letzter spätestens ${latest}).`)
         } else {
-          setToast({
-            type: 'success',
-            message: `Newsletter geplant für ${when} (${data.enqueued} Empfänger).`,
-          })
+          toast.success(`Newsletter geplant für ${when} (${data.enqueued} Empfänger).`)
         }
       } else if (useSto) {
         const res = await fetch('/api/admin/newsletter', {
@@ -1538,21 +1527,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         if (!res.ok) throw new Error(data.error || 'Fehler beim Versenden.')
         const earliest = data.earliest ? new Date(data.earliest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
         const latest = data.latest ? new Date(data.latest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
-        setToast({
-          type: 'success',
-          message: `${data.enqueued} Mails geplant (${earliest} – ${latest}). ${data.pushed_now} sofort an Resend gesendet.`,
-        })
+        toast.success(`${data.enqueued} Mails geplant (${earliest} – ${latest}). ${data.pushed_now} sofort an Resend gesendet.`)
       } else {
         const result = await streamingSend(
           { action: 'send', subject, blocks, audienceFilter: audiencePayload, listId: listIdPayload },
-          ({ sent, total }) => setToast({ type: 'info', message: `${sent} von ${total} gesendet…` })
+          ({ sent, total }) => toast.info(`${sent} von ${total} gesendet…`)
         )
-        setToast({ type: 'success', message: `Erfolgreich an ${result.sent} Empfänger versendet.` })
+        toast.success(`Erfolgreich an ${result.sent} Empfänger versendet.`)
       }
       goBackToPicker()
       loadData()
     } catch (err: unknown) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Unbekannter Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Unbekannter Fehler')
     } finally {
       setSending(false)
     }
@@ -1686,6 +1672,9 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         )}
 
         <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen ? 'hidden' : ''}`}>
+      <div className="flex justify-end">
+        <StatusPill />
+      </div>
       {/* --- Dashboard Tab ----------------------------------------- */}
       {tab === 'dashboard' && (
         <DashboardTab
@@ -1901,7 +1890,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                       </h4>
                       <button
                         onClick={async () => {
-                          setToast({ type: 'info', message: 'Artikel werden synchronisiert…' })
+                          toast.info('Artikel werden synchronisiert…')
                           try {
                             const res = await fetch('/api/admin/newsletter', {
                               method: 'POST',
@@ -1910,13 +1899,13 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                             })
                             const data = await res.json()
                             if (res.ok) {
-                              setToast({ type: 'success', message: `${data.synced} Artikel synchronisiert.` })
+                              toast.success(`${data.synced} Artikel synchronisiert.`)
                               loadData()
                             } else {
-                              setToast({ type: 'error', message: data.error || 'Sync fehlgeschlagen.' })
+                              toast.error(data.error || 'Sync fehlgeschlagen.')
                             }
                           } catch {
-                            setToast({ type: 'error', message: 'Sync fehlgeschlagen.' })
+                            toast.error('Sync fehlgeschlagen.')
                           }
                         }}
                         className="text-[10px] text-primary-600 hover:underline"
@@ -2045,22 +2034,19 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
       )}
 
       {/* --- Subscribers Tab --------------------------------------- */}
-      {/* --- Subscribers Tab --------------------------------------- */}
       {tab === 'subscribers' && (
         <SubscribersTab
           subscribers={subscribers}
           setConfirmAction={setConfirmAction}
-          setToast={setToast}
           loadData={loadData}
         />
       )}
 
       {/* --- Lists Tab ---------------------------------------------- */}
       {tab === 'lists' && (
-        <ListsTab setToast={setToast} />
+        <ListsTab />
       )}
 
-      {/* --- History / Reporting Tab ------------------------------- */}
       {/* --- History Tab ------------------------------------------- */}
       {tab === 'history' && (
         <HistoryTab
@@ -2070,7 +2056,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
           subscriberGrowth={subscriberGrowth}
           overallStats={overallStats}
           siteConfig={PREVIEW_SITE_CONFIG}
-          setToast={setToast}
           loadData={loadData}
           streamingSend={streamingSend}
         />
@@ -2081,10 +2066,9 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         <BouncesTab />
       )}
 
-      {/* --- Settings Tab -------------------------------------------- */}
       {/* --- Settings Tab ------------------------------------------ */}
       {tab === 'settings' && (
-        <SettingsTab setToast={setToast} />
+        <SettingsTab />
       )}
 
       {/* --- Automations Tab (non-fullscreen = list view) --------- */}
@@ -2097,30 +2081,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         <EmailTemplatesTab />
       )}
 
-      {/* --- Toast ----------------------------------------------- */}
-      {toast && (
-        <div className="fixed inset-x-0 top-6 z-[9999] flex justify-center pointer-events-none">
-          <div
-            className={`pointer-events-auto flex items-center gap-3 rounded-xl border px-5 py-3 shadow-xl backdrop-blur-md ${
-              toast.type === 'success'
-                ? 'border-emerald-200/60 bg-emerald-50/90 text-emerald-800 dark:border-emerald-700/60 dark:bg-emerald-900/80 dark:text-emerald-200'
-                : toast.type === 'info'
-                  ? 'border-blue-200/60 bg-blue-50/90 text-blue-800 dark:border-blue-700/60 dark:bg-blue-900/80 dark:text-blue-200'
-                  : 'border-red-200/60 bg-red-50/90 text-red-800 dark:border-red-700/60 dark:bg-red-900/80 dark:text-red-200'
-            }`}
-          >
-            <span className="text-sm font-medium">{toast.message}</span>
-            <button
-              onClick={() => setToast(null)}
-              className="ml-1 rounded-full p-0.5 opacity-60 transition-opacity hover:opacity-100"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* --- Confirm Send Modal --------------------------------- */}
       {confirmSend && (() => {

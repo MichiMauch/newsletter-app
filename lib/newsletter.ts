@@ -491,26 +491,40 @@ export interface NewsletterRecipientRow {
   bounce_sub_type: string | null
   bounce_message: string | null
   complained_at: string | null
+  engagement_score: number | null
+  engagement_tier: 'active' | 'moderate' | 'dormant' | 'cold' | null
 }
 
-export async function getRecipientsForSend(sendId: number): Promise<NewsletterRecipientRow[]> {
+export async function getRecipientsForSend(siteId: string, sendId: number): Promise<NewsletterRecipientRow[]> {
   const db = getDb()
-  const rows = await db.select().from(newsletterRecipients)
-    .where(eq(newsletterRecipients.sendId, sendId))
-    .orderBy(newsletterRecipients.email)
-  return rows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    resend_email_id: r.resendEmailId,
-    status: r.status,
-    delivered_at: r.deliveredAt,
-    clicked_at: r.clickedAt,
-    click_count: r.clickCount,
-    bounced_at: r.bouncedAt,
-    bounce_type: r.bounceType,
-    bounce_sub_type: r.bounceSubType,
-    bounce_message: r.bounceMessage,
-    complained_at: r.complainedAt,
+  const rows = await db.run(sql`
+    SELECT
+      nr.id, nr.email, nr.resend_email_id, nr.status,
+      nr.delivered_at, nr.clicked_at, nr.click_count,
+      nr.bounced_at, nr.bounce_type, nr.bounce_sub_type, nr.bounce_message,
+      nr.complained_at,
+      se.score AS engagement_score, se.tier AS engagement_tier
+    FROM newsletter_recipients nr
+    LEFT JOIN subscriber_engagement se
+      ON se.site_id = ${siteId} AND se.subscriber_email = nr.email
+    WHERE nr.send_id = ${sendId}
+    ORDER BY nr.email
+  `)
+  return (rows.rows ?? []).map((r) => ({
+    id: r.id as number,
+    email: r.email as string,
+    resend_email_id: (r.resend_email_id as string | null) ?? null,
+    status: r.status as NewsletterRecipientRow['status'],
+    delivered_at: (r.delivered_at as string | null) ?? null,
+    clicked_at: (r.clicked_at as string | null) ?? null,
+    click_count: (r.click_count as number) ?? 0,
+    bounced_at: (r.bounced_at as string | null) ?? null,
+    bounce_type: (r.bounce_type as string | null) ?? null,
+    bounce_sub_type: (r.bounce_sub_type as string | null) ?? null,
+    bounce_message: (r.bounce_message as string | null) ?? null,
+    complained_at: (r.complained_at as string | null) ?? null,
+    engagement_score: (r.engagement_score as number | null) ?? null,
+    engagement_tier: (r.engagement_tier as NewsletterRecipientRow['engagement_tier']) ?? null,
   }))
 }
 

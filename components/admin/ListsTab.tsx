@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { ToastState } from './types'
 import { inputCls } from './types'
+import { useToast } from '../ui/ToastProvider'
 
 export interface SubscriberListSummary {
   id: number
@@ -21,11 +21,8 @@ export interface SubscriberListMember {
   added_at: string
 }
 
-interface ListsTabProps {
-  setToast: (toast: ToastState) => void
-}
-
-export default function ListsTab({ setToast }: ListsTabProps) {
+export default function ListsTab() {
+  const toast = useToast()
   const [lists, setLists] = useState<SubscriberListSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -53,7 +50,7 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       const data = await res.json()
       setLists(data.lists || [])
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     } finally {
       setLoading(false)
     }
@@ -71,7 +68,7 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       setRenameValue(data.list?.name ?? '')
       setRenameDescription(data.list?.description ?? '')
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     } finally {
       setLoadingMembers(false)
     }
@@ -94,10 +91,10 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       if (!res.ok) throw new Error(data.error || 'Fehler beim Anlegen.')
       setNewName('')
       setNewDescription('')
-      setToast({ type: 'success', message: `Liste «${newName.trim()}» angelegt.` })
+      toast.success(`Liste «${newName.trim()}» angelegt.`)
       await loadLists()
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     } finally {
       setCreating(false)
     }
@@ -119,10 +116,10 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Fehler beim Speichern.')
-      setToast({ type: 'success', message: 'Liste aktualisiert.' })
+      toast.success('Liste aktualisiert.')
       await loadLists()
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     } finally {
       setRenaming(false)
     }
@@ -137,12 +134,12 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Fehler beim Löschen.')
-      setToast({ type: 'success', message: 'Liste gelöscht.' })
+      toast.success('Liste gelöscht.')
       setConfirmDelete(null)
       if (selectedListId === id) setSelectedListId(null)
       await loadLists()
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     }
   }
 
@@ -168,16 +165,13 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       if (data.added > 0) parts.push(`${data.added} hinzugefügt`)
       if (data.skipped_duplicate > 0) parts.push(`${data.skipped_duplicate} bereits drin`)
       if (data.skipped_invalid > 0) parts.push(`${data.skipped_invalid} ungültig`)
-      setToast({
-        type: data.added > 0 ? 'success' : 'info',
-        message: parts.join(' · '),
-      })
+      toast.toast(data.added > 0 ? 'success' : 'info', parts.join(' · '))
 
       setBulkEmails('')
       await loadMembers(selectedListId)
       await loadLists()
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     } finally {
       setAdding(false)
     }
@@ -193,11 +187,11 @@ export default function ListsTab({ setToast }: ListsTabProps) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Fehler beim Entfernen.')
-      setToast({ type: 'success', message: `${email} entfernt.` })
+      toast.success(`${email} entfernt.`)
       await loadMembers(selectedListId)
       await loadLists()
     } catch (err) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     }
   }
 
