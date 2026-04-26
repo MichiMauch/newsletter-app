@@ -13,6 +13,7 @@ import EmailTemplatesTab from './admin/EmailTemplatesTab'
 import LoginForm from './admin/LoginForm'
 import { useToast } from './ui/ToastProvider'
 import StatusPill from './ui/StatusPill'
+import AiCopilot from './ui/AiCopilot'
 import EngagementTrendChart from './admin/charts/EngagementTrendChart'
 import SubscriberGrowthChart from './admin/charts/SubscriberGrowthChart'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
@@ -104,19 +105,37 @@ interface SubscriberGrowth {
   new_count: number
 }
 
-type Tab = 'dashboard' | 'compose' | 'subscribers' | 'lists' | 'history' | 'bounces' | 'settings' | 'automations' | 'emails'
+type Tab = 'dashboard' | 'send' | 'subscribers' | 'lists' | 'settings' | 'automations' | 'emails'
+type SendSubTab = 'compose' | 'history' | 'bounces'
 
-function tabToHref(tab: Tab): string {
-  return tab === 'dashboard' ? '/admin/newsletter' : `/admin/newsletter/${tab}`
+const TOP_LEVEL_TABS: Tab[] = ['subscribers', 'lists', 'settings', 'automations', 'emails']
+const SEND_SUB_TABS: SendSubTab[] = ['compose', 'history', 'bounces']
+
+function tabToHref(tab: Tab, subTab: SendSubTab = 'compose'): string {
+  if (tab === 'dashboard') return '/admin/newsletter'
+  if (tab === 'send') return subTab === 'compose' ? '/admin/newsletter/send' : `/admin/newsletter/send/${subTab}`
+  return `/admin/newsletter/${tab}`
 }
 
-function pathToTab(pathname: string): Tab {
-  const segment = pathname.replace('/admin/newsletter', '').replace(/^\//, '').split('/')[0]
-  if (!segment) return 'dashboard'
-  const tabs: Tab[] = ['compose', 'subscribers', 'lists', 'history', 'bounces', 'settings', 'automations']
-  return tabs.includes(segment as Tab) ? (segment as Tab) : 'dashboard'
+function pathToTab(pathname: string): { tab: Tab; subTab: SendSubTab } {
+  const segments = pathname.replace('/admin/newsletter', '').replace(/^\//, '').split('/').filter(Boolean)
+  const first = segments[0]
+  if (!first) return { tab: 'dashboard', subTab: 'compose' }
+  if (first === 'send') {
+    const sub = segments[1] as SendSubTab | undefined
+    return { tab: 'send', subTab: sub && SEND_SUB_TABS.includes(sub) ? sub : 'compose' }
+  }
+  if (TOP_LEVEL_TABS.includes(first as Tab)) return { tab: first as Tab, subTab: 'compose' }
+  return { tab: 'dashboard', subTab: 'compose' }
 }
 type ComposeMode = 'pick-template' | 'fill-slots' | 'build-template'
+type ComposeStep = 'content' | 'audience' | 'review'
+
+const COMPOSE_STEPS: { key: ComposeStep; label: string }[] = [
+  { key: 'content', label: 'Inhalte' },
+  { key: 'audience', label: 'Empfänger' },
+  { key: 'review', label: 'Vorschau & Senden' },
+]
 
 // --- Helpers -----------------------------------------------------------
 
@@ -282,6 +301,103 @@ function getUsedSlugs(blocks: NewsletterBlock[]): Set<string> {
 
 const inputCls =
   'w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30'
+
+// --- Send Center Sub-Nav ---------------------------------------------
+
+const SEND_SUB_TAB_LABELS: Record<SendSubTab, string> = {
+  compose: 'Erstellen',
+  history: 'Historie',
+  bounces: 'Probleme',
+}
+
+function SendCenterNav({ active, onChange }: { active: SendSubTab; onChange: (sub: SendSubTab) => void }) {
+  return (
+    <div className="flex items-center gap-1 border-b border-[var(--border)]">
+      {(['compose', 'history', 'bounces'] as SendSubTab[]).map((sub) => {
+        const isActive = sub === active
+        return (
+          <a
+            key={sub}
+            href={tabToHref('send', sub)}
+            onClick={(e) => {
+              if (e.ctrlKey || e.metaKey || e.button === 1) return
+              e.preventDefault()
+              onChange(sub)
+            }}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              isActive
+                ? 'border-primary-600 text-[var(--text)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text)]'
+            }`}
+          >
+            {SEND_SUB_TAB_LABELS[sub]}
+          </a>
+        )
+      })}
+    </div>
+  )
+}
+
+// --- Compose Wizard Stepper ------------------------------------------
+
+interface WizardStepperProps {
+  currentStep: 0 | 1 | 2 | 3 // 0 = template, 1 = content, 2 = audience, 3 = review
+  onStepClick: (step: 0 | 1 | 2 | 3) => void
+  contentReady: boolean
+  audienceReady: boolean
+}
+
+function WizardStepper({ currentStep, onStepClick, contentReady, audienceReady }: WizardStepperProps) {
+  const steps: { label: string; available: boolean }[] = [
+    { label: 'Template', available: true },
+    { label: 'Inhalte', available: currentStep > 0 },
+    { label: 'Empfänger', available: contentReady },
+    { label: 'Vorschau & Senden', available: contentReady && audienceReady },
+  ]
+
+  return (
+    <ol className="flex items-center gap-1 overflow-x-auto border-b border-[var(--border)] pb-3">
+      {steps.map((step, idx) => {
+        const isActive = idx === currentStep
+        const isPast = idx < currentStep
+        const canClick = step.available && !isActive
+        return (
+          <li key={step.label} className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={!canClick}
+              onClick={() => canClick && onStepClick(idx as 0 | 1 | 2 | 3)}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium transition-colors ${
+                isActive
+                  ? 'border border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300'
+                  : isPast
+                    ? 'text-[var(--text)] hover:bg-[var(--bg-secondary)]'
+                    : 'text-[var(--text-muted)]'
+              } ${canClick ? 'cursor-pointer' : 'cursor-default'}`}
+            >
+              <span
+                className={`flex h-5 w-5 items-center justify-center text-[10px] tabular-nums ${
+                  isActive
+                    ? 'bg-primary-600 text-white'
+                    : isPast
+                      ? 'bg-[var(--text)] text-[var(--background)]'
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
+                }`}
+                aria-hidden
+              >
+                {isPast ? '✓' : idx + 1}
+              </span>
+              {step.label}
+            </button>
+            {idx < steps.length - 1 && (
+              <span className="text-[var(--text-muted)]" aria-hidden>›</span>
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
 
 // --- Drag & Drop Components ------------------------------------------
 
@@ -845,6 +961,170 @@ function PreviewModal({
   )
 }
 
+// --- Newsletter Studio (fullscreen editor with live preview) ----------
+
+interface NewsletterStudioProps {
+  subject: string
+  onSubjectChange: (value: string) => void
+  blocks: NewsletterBlock[]
+  onUpdateBlock: (index: number, updated: NewsletterBlock) => void
+  onRemoveBlock: (index: number) => void
+  onMoveBlock: (from: number, to: number) => void
+  onInsertBlock: (type: UserAuthoredBlockType, at: number) => void
+  posts: Post[]
+  postsMap: Record<string, PostRef>
+  siteConfig: SiteConfig
+  viewport: 'desktop' | 'mobile'
+  onViewportChange: (viewport: 'desktop' | 'mobile') => void
+  onExit: () => void
+}
+
+function NewsletterStudio({
+  subject,
+  onSubjectChange,
+  blocks,
+  onUpdateBlock,
+  onRemoveBlock,
+  onMoveBlock,
+  onInsertBlock,
+  posts,
+  postsMap,
+  siteConfig,
+  viewport,
+  onViewportChange,
+  onExit,
+}: NewsletterStudioProps) {
+  const usedSlugs = getUsedSlugs(blocks)
+  const html = blocksAreValid(blocks)
+    ? buildMultiBlockNewsletterHtml(siteConfig, blocks, postsMap, '#')
+    : null
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onExit() }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [onExit])
+
+  const previewWidth = viewport === 'mobile' ? 375 : 600
+
+  return (
+    <div className="flex h-screen flex-col bg-[var(--background)]">
+      {/* Header */}
+      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--background-card)] px-4 py-2.5">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Studio</span>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => onSubjectChange(e.target.value)}
+          placeholder="Newsletter-Betreff…"
+          className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+        />
+
+        <div className="flex items-center border border-[var(--border)] bg-[var(--background-card)]" role="group" aria-label="Vorschau-Breite">
+          <button
+            type="button"
+            onClick={() => onViewportChange('desktop')}
+            className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+              viewport === 'desktop'
+                ? 'bg-[var(--bg-secondary)] text-[var(--text)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+            }`}
+            title="Desktop-Vorschau (600px)"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewportChange('mobile')}
+            className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+              viewport === 'mobile'
+                ? 'bg-[var(--bg-secondary)] text-[var(--text)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+            }`}
+            title="Mobile-Vorschau (375px)"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+            </svg>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={onExit}
+          className="flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background-card)] px-3 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text)]"
+          title="Studio verlassen (ESC)"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l6 6m0-6l-6 6" />
+          </svg>
+          Schliessen
+        </button>
+      </header>
+
+      {/* Body */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: posts library */}
+        <aside className="w-72 shrink-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--background-card)] p-3">
+          <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+            Artikel · Drag &amp; Drop
+          </h3>
+          <div className="space-y-2">
+            {posts.slice(0, 30).map((post) => (
+              <DraggablePostItem key={post.slug} post={post} isUsed={usedSlugs.has(post.slug)} />
+            ))}
+          </div>
+        </aside>
+
+        {/* Middle: editor */}
+        <main className="flex-1 overflow-y-auto p-4">
+          <div className="mx-auto max-w-2xl space-y-1">
+            <InsertToolbar onInsert={(type) => onInsertBlock(type, 0)} alwaysExpanded={blocks.length === 0} />
+            {blocks.map((block, i) => (
+              <React.Fragment key={block.id}>
+                <SlotCard
+                  block={block}
+                  index={i}
+                  posts={posts}
+                  allBlocks={blocks}
+                  onUpdate={(updated) => onUpdateBlock(i, updated)}
+                  onRemove={() => onRemoveBlock(i)}
+                  onMove={onMoveBlock}
+                />
+                <InsertToolbar onInsert={(type) => onInsertBlock(type, i + 1)} alwaysExpanded={i === blocks.length - 1} />
+              </React.Fragment>
+            ))}
+          </div>
+        </main>
+
+        {/* Right: live preview */}
+        <aside className="flex w-1/2 max-w-[760px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="border-b border-[var(--border)] px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+            Live-Vorschau · {viewport === 'mobile' ? '375 px' : '600 px'}
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {html ? (
+              <iframe
+                key={viewport}
+                title="Newsletter-Vorschau"
+                srcDoc={html}
+                style={{ width: previewWidth, height: '100%', minHeight: '600px' }}
+                className="mx-auto block border border-[var(--border)] bg-white shadow-sm"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-center text-sm text-[var(--text-muted)]">
+                Füge Inhalte hinzu, um die Vorschau zu sehen.
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
 // --- Engagement Panel --------------------------------------------------
 
 export type AudienceMode = 'all' | 'engaged' | 'high'
@@ -1127,12 +1407,18 @@ function BucketCard({ dotClass, label, count, hint }: { dotClass: string; label:
 
 // --- Trend Charts ------------------------------------------------------
 
-export default function AdminNewsletter({ initialTab = 'dashboard', automationId }: { initialTab?: Tab; automationId?: number } = {}) {
+export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTab = 'compose', automationId }: { initialTab?: Tab; initialSubTab?: SendSubTab; automationId?: number } = {}) {
   const [phase, setPhase] = useState<'checking' | 'login' | 'loaded'>('checking')
   const [tab, setTab] = useState<Tab>(initialTab)
-  const setTabWithUrl = useCallback((newTab: Tab) => {
+  const [sendSubTab, setSendSubTab] = useState<SendSubTab>(initialSubTab)
+  const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'compose') => {
     setTab(newTab)
-    window.history.pushState(null, '', tabToHref(newTab))
+    if (newTab === 'send') setSendSubTab(newSubTab)
+    window.history.pushState(null, '', tabToHref(newTab, newSubTab))
+  }, [])
+  const setSendSubTabWithUrl = useCallback((sub: SendSubTab) => {
+    setSendSubTab(sub)
+    window.history.pushState(null, '', tabToHref('send', sub))
   }, [])
 
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
@@ -1142,7 +1428,11 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [darkMode, setDarkMode] = useState(false)
 
   useEffect(() => {
-    const handlePopState = () => setTab(pathToTab(window.location.pathname))
+    const handlePopState = () => {
+      const next = pathToTab(window.location.pathname)
+      setTab(next.tab)
+      setSendSubTab(next.subTab)
+    }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
@@ -1164,6 +1454,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
 
   // Compose state
   const [composeMode, setComposeMode] = useState<ComposeMode>('pick-template')
+  const [composeStep, setComposeStep] = useState<ComposeStep>('content')
   const [selectedTemplate, setSelectedTemplate] = useState<NewsletterTemplate | null>(null)
   const [blocks, setBlocks] = useState<NewsletterBlock[]>([])
   const [subject, setSubject] = useState('')
@@ -1200,6 +1491,8 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [overallStats, setOverallStats] = useState<OverallStatsData | null>(null)
 
   const [automationFullscreen, setAutomationFullscreen] = useState(false)
+  const [studioMode, setStudioMode] = useState(false)
+  const [studioViewport, setStudioViewport] = useState<'desktop' | 'mobile'>('desktop')
 
   const confirmedCount = subscribers.filter((s) => s.status === 'confirmed').length
   const selectedList = selectedListId ? availableLists.find((l) => l.id === selectedListId) : null
@@ -1218,7 +1511,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   }, [])
 
   useEffect(() => {
-    if (tab !== 'compose') return
+    if (!(tab === 'send' && sendSubTab === 'compose')) return
     fetch('/api/admin/lists')
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
@@ -1229,7 +1522,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         }
       })
       .catch(() => { /* silent */ })
-  }, [tab])
+  }, [tab, sendSubTab])
 
   useEffect(() => {
     // Reset audience filter whenever the post selection changes — the cached
@@ -1309,16 +1602,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   }, [])
 
   useEffect(() => {
-    if ((tab === 'history' || tab === 'dashboard') && sendTrends.length === 0) {
+    const isHistory = tab === 'send' && sendSubTab === 'history'
+    if ((isHistory || tab === 'dashboard') && sendTrends.length === 0) {
       loadTrends()
     }
-  }, [tab])
+  }, [tab, sendSubTab])
 
   function selectTemplate(template: NewsletterTemplate) {
     setSelectedTemplate(template)
     setBlocks(blocksFromTemplate(template))
     setSubject('')
     setComposeMode('fill-slots')
+    setComposeStep('content')
   }
 
   function goBackToPicker() {
@@ -1326,6 +1621,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     setBlocks([])
     setSubject('')
     setComposeMode('pick-template')
+    setComposeStep('content')
   }
 
   async function generateSubject() {
@@ -1439,6 +1735,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     setBlocks(draft.blocks)
     setSubject(draft.subject)
     setComposeMode('fill-slots')
+    setComposeStep('content')
   }
 
   function handleDeleteDraft(id: string) {
@@ -1563,42 +1860,40 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     )
   }
 
-  const sidebarItems: { id: Tab; label: string; href: string; icon: React.ReactNode }[] = [
+  type SidebarItem = { id: Tab; label: string; icon: React.ReactNode }
+  type SidebarGroup = { label: string | null; items: SidebarItem[] }
+
+  const ICON_DASHBOARD = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
+  const ICON_SEND = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+  const ICON_SUBSCRIBERS = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77M12 15.07a5.98 5.98 0 00-1.654-.76M15 19.128H5.228A2 2 0 013 17.16V17" /></svg>
+  const ICON_LISTS = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+  const ICON_AUTOMATION = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
+  const ICON_TEMPLATES = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+  const ICON_SETTINGS = <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+
+  const sidebarGroups: SidebarGroup[] = [
     {
-      id: 'dashboard', label: 'Dashboard', href: '/admin/newsletter',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>,
+      label: null,
+      items: [{ id: 'dashboard', label: 'Dashboard', icon: ICON_DASHBOARD }],
     },
     {
-      id: 'compose', label: 'Erstellen', href: '/admin/newsletter/compose',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>,
+      label: 'Senden',
+      items: [{ id: 'send', label: 'Send Center', icon: ICON_SEND }],
     },
     {
-      id: 'subscribers', label: 'Abonnenten', href: '/admin/newsletter/subscribers',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77M12 15.07a5.98 5.98 0 00-1.654-.76M15 19.128H5.228A2 2 0 013 17.16V17" /></svg>,
+      label: 'Audience',
+      items: [
+        { id: 'subscribers', label: 'Abonnenten', icon: ICON_SUBSCRIBERS },
+        { id: 'lists', label: 'Listen', icon: ICON_LISTS },
+      ],
     },
     {
-      id: 'lists', label: 'Listen', href: '/admin/newsletter/lists',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>,
-    },
-    {
-      id: 'history', label: 'Historie', href: '/admin/newsletter/history',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>,
-    },
-    {
-      id: 'bounces', label: 'Bounces', href: '/admin/newsletter/bounces',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.5h.008v.008H12v-.008zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-    },
-    {
-      id: 'settings', label: 'Settings', href: '/admin/newsletter/settings',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-    },
-    {
-      id: 'automations', label: 'Automation', href: '/admin/newsletter/automations',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>,
-    },
-    {
-      id: 'emails', label: 'Templates', href: '/admin/newsletter/emails',
-      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>,
+      label: 'System',
+      items: [
+        { id: 'automations', label: 'Automation', icon: ICON_AUTOMATION },
+        { id: 'emails', label: 'Templates', icon: ICON_TEMPLATES },
+        { id: 'settings', label: 'Settings', icon: ICON_SETTINGS },
+      ],
     },
   ]
 
@@ -1622,23 +1917,36 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
           </svg>
         </button>
 
-        {/* Nav Items */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
-          {sidebarItems.map((item) => (
-            <a
-              key={item.id}
-              href={item.href}
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey || e.button === 1) return
-                e.preventDefault()
-                setTabWithUrl(item.id)
-              }}
-              className={`sidebar-icon${tab === item.id ? ' active' : ''}`}
-              title={!sidebarOpen ? item.label : undefined}
-            >
-              {item.icon}
-              <span className="sidebar-label">{item.label}</span>
-            </a>
+        {/* Nav Groups */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 8px' }}>
+          {sidebarGroups.map((group, gIdx) => (
+            <div key={group.label ?? `group-${gIdx}`} className="flex flex-col gap-0.5">
+              {group.label && (
+                sidebarOpen ? (
+                  <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                    {group.label}
+                  </div>
+                ) : (
+                  gIdx > 0 && <div className="mx-2 mb-1 mt-1 h-px bg-[var(--border)]/40" aria-hidden />
+                )
+              )}
+              {group.items.map((item) => (
+                <a
+                  key={item.id}
+                  href={tabToHref(item.id)}
+                  onClick={(e) => {
+                    if (e.ctrlKey || e.metaKey || e.button === 1) return
+                    e.preventDefault()
+                    setTabWithUrl(item.id)
+                  }}
+                  className={`sidebar-icon${tab === item.id ? ' active' : ''}`}
+                  title={!sidebarOpen ? item.label : undefined}
+                >
+                  {item.icon}
+                  <span className="sidebar-label">{item.label}</span>
+                </a>
+              ))}
+            </div>
           ))}
         </div>
 
@@ -1665,13 +1973,32 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
       </nav>
 
       {/* ── Main Content ─────────────────────────────── */}
-      <div className={`flex-1 ${automationFullscreen ? '' : 'overflow-y-auto'}`}>
+      <div className={`flex-1 ${automationFullscreen || studioMode ? '' : 'overflow-y-auto'}`}>
         {/* Automation fullscreen — no container constraints */}
         {automationFullscreen && tab === 'automations' && (
           <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} initialAutomationId={automationId} />
         )}
 
-        <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen ? 'hidden' : ''}`}>
+        {/* Studio fullscreen — replaces compose step 2 with editor + live preview */}
+        {studioMode && tab === 'send' && sendSubTab === 'compose' && composeMode === 'fill-slots' && (
+          <NewsletterStudio
+            subject={subject}
+            onSubjectChange={setSubject}
+            blocks={blocks}
+            onUpdateBlock={updateBlock}
+            onRemoveBlock={removeBlock}
+            onMoveBlock={moveBlock}
+            onInsertBlock={insertBlock}
+            posts={posts}
+            postsMap={postsMap}
+            siteConfig={PREVIEW_SITE_CONFIG}
+            viewport={studioViewport}
+            onViewportChange={setStudioViewport}
+            onExit={() => setStudioMode(false)}
+          />
+        )}
+
+        <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen || studioMode ? 'hidden' : ''}`}>
       <div className="flex justify-end">
         <StatusPill />
       </div>
@@ -1690,10 +2017,86 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         />
       )}
 
-      {/* --- Compose Tab ------------------------------------------- */}
-      {tab === 'compose' && (
+      {/* --- Send Center: sub-nav -------------------------------- */}
+      {tab === 'send' && (
+        <SendCenterNav active={sendSubTab} onChange={setSendSubTabWithUrl} />
+      )}
+
+      {/* --- Send Center › Compose ------------------------------- */}
+      {tab === 'send' && sendSubTab === 'compose' && (() => {
+        const stepIndex: 0 | 1 | 2 | 3 =
+          composeMode === 'pick-template' ? 0
+            : composeStep === 'content' ? 1
+              : composeStep === 'audience' ? 2
+                : 3
+        const contentReady = subject.trim() !== '' && blocksAreValid(blocks)
+        const audienceReady = true
+        const handleStepClick = (next: 0 | 1 | 2 | 3) => {
+          if (next === 0) {
+            if (composeMode === 'fill-slots') {
+              setConfirmAction({
+                title: 'Anderes Template wählen',
+                message: 'Inhalt geht verloren. Speichere vorher als Entwurf, wenn du ihn behalten willst.',
+                onConfirm: () => { setConfirmAction(null); goBackToPicker() },
+              })
+            } else {
+              goBackToPicker()
+            }
+            return
+          }
+          if (composeMode !== 'fill-slots') return
+          if (next === 1) setComposeStep('content')
+          else if (next === 2) setComposeStep('audience')
+          else if (next === 3) setComposeStep('review')
+        }
+
+        return (
         <div className="glass-card space-y-5 rounded-xl p-6">
-          {/* Mode: Pick Template */}
+          {composeMode !== 'build-template' && (
+            <WizardStepper
+              currentStep={stepIndex}
+              onStepClick={handleStepClick}
+              contentReady={contentReady}
+              audienceReady={audienceReady}
+            />
+          )}
+
+          {/* Resume-Draft banner (only when picker is shown) */}
+          {composeMode === 'pick-template' && drafts.length > 0 && (
+            <div className="border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/20">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                  Weitermachen?
+                </span>
+                <span className="text-[10px] text-amber-700/70 dark:text-amber-300/70">
+                  {drafts.length} Entwurf{drafts.length === 1 ? '' : 'e'}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {drafts.slice(0, 3).map((d) => (
+                  <div key={d.id} className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => handleLoadDraft(d)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <div className="truncate text-sm font-medium text-[var(--text)]">{d.subject || 'Ohne Betreff'}</div>
+                      <div className="text-[10px] text-[var(--text-secondary)]">
+                        {d.blocks.length} Block{d.blocks.length === 1 ? '' : 'e'} · {formatDate(d.savedAt)}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDraft(d.id)}
+                      className="text-[10px] text-amber-700/80 transition-colors hover:text-red-600 dark:text-amber-300/80"
+                    >
+                      Verwerfen
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: Pick Template */}
           {composeMode === 'pick-template' && (
             <div className="space-y-6">
               <div>
@@ -1725,42 +2128,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 </div>
               )}
 
-              {drafts.length > 0 && (
-                <div>
-                  <div className="mb-3 flex items-center gap-3">
-                    <div className="h-px flex-1 bg-[var(--border)]" />
-                    <span className="text-xs font-medium text-[var(--text-secondary)]">Gespeicherte Entwürfe</span>
-                    <div className="h-px flex-1 bg-[var(--border)]" />
-                  </div>
-                  <div className="space-y-2">
-                    {drafts.map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background-card)] px-4 py-3 transition-colors hover:border-primary-300 "
-                      >
-                        <button
-                          onClick={() => handleLoadDraft(d)}
-                          className="flex-1 text-left"
-                        >
-                          <div className="text-sm font-medium text-[var(--text)]">
-                            {d.subject || 'Ohne Betreff'}
-                          </div>
-                          <div className="text-xs text-[var(--text-secondary)]">
-                            {d.blocks.length} Block{d.blocks.length !== 1 ? 'e' : ''} · {formatDate(d.savedAt)}
-                          </div>
-                        </button>
-                        <button
-                          onClick={() => handleDeleteDraft(d.id)}
-                          className="ml-3 text-xs text-red-500 hover:text-red-700"
-                        >
-                          Löschen
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <button
                 onClick={() => setComposeMode('build-template')}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-4 py-4 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:border-primary-400 hover:bg-primary-50/50 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
@@ -1783,18 +2150,32 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
             const usedSlugs = getUsedSlugs(blocks)
             return (
             <div className="space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-[var(--text)]">
-                  Template: <span className="font-semibold">"{selectedTemplate.name}"</span>
-                </h3>
-                <button
-                  onClick={goBackToPicker}
-                  className="rounded-full border border-[var(--border)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
-                >
-                  &larr; Andere wählen
-                </button>
+              <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                <span>
+                  Template: <span className="font-medium text-[var(--text)]">{selectedTemplate.name}</span>
+                </span>
+                <span className="tabular-nums text-[var(--text-muted)]">
+                  Schritt {stepIndex} von 3
+                </span>
               </div>
 
+              {composeStep === 'content' && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setStudioMode(true)}
+                  className="flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background-card)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:border-primary-400 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                  title="Studio: vollflächiger Editor mit Live-Vorschau"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                  </svg>
+                  Im Studio öffnen
+                </button>
+              </div>
+              )}
+
+              {composeStep === 'content' && (
               <div>
                 <label className="mb-2 block text-sm font-medium text-[var(--text)]">Betreffzeile</label>
                 <div className="flex gap-2">
@@ -1819,14 +2200,17 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                   </button>
                 </div>
               </div>
+              )}
 
+              {composeStep === 'audience' && (
               <EngagementPanel
                 slugs={[...usedSlugs]}
                 audienceMode={audienceFilter?.mode ?? 'all'}
                 onAudienceChange={setAudienceFilter}
               />
+              )}
 
-              {availableLists.length > 0 && (
+              {composeStep === 'audience' && availableLists.length > 0 && (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-medium text-[var(--text)]">Empfänger aus Liste</span>
@@ -1861,6 +2245,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 </div>
               )}
 
+              {composeStep === 'content' && (
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_280px]">
                 {/* Left: Template slots */}
                 <div className="space-y-1">
@@ -1925,6 +2310,34 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                     </div>
                   </div>
                 </div>
+              </div>
+              )}
+
+              {composeStep === 'review' && (
+              <>
+              <div className="border border-[var(--border)] bg-[var(--background-card)] p-4">
+                <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Bereit zum Senden</h4>
+                <dl className="space-y-2 text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-[var(--text-secondary)]">Betreff</dt>
+                    <dd className="min-w-0 flex-1 truncate text-right text-[var(--text)]">
+                      {subject || <span className="text-red-500">— fehlt —</span>}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-[var(--text-secondary)]">Blöcke</dt>
+                    <dd className="text-right tabular-nums text-[var(--text)]">{blocks.length}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-[var(--text-secondary)]">Empfänger</dt>
+                    <dd className="text-right tabular-nums text-[var(--text)]">
+                      {audienceCount}
+                      {selectedList ? <span className="text-[var(--text-muted)]"> · Liste «{selectedList.name}»</span>
+                        : audienceFilter ? <span className="text-[var(--text-muted)]"> · Segment</span>
+                        : <span className="text-[var(--text-muted)]"> · alle bestätigten Abos</span>}
+                    </dd>
+                  </div>
+                </dl>
               </div>
 
               <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
@@ -2018,18 +2431,67 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                     : `${scheduleMode === 'scheduled' ? 'Versand planen' : 'Senden'} • ${audienceCount} Abonnent${audienceCount !== 1 ? 'en' : ''}${audienceFilter ? ' (Segment)' : ''}`}
                 </button>
               </div>
+              </>
+              )}
+
+              {/* Wizard nav footer */}
+              <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (composeStep === 'content') handleStepClick(0)
+                    else if (composeStep === 'audience') setComposeStep('content')
+                    else setComposeStep('audience')
+                  }}
+                  className="rounded-full border border-[var(--border)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                >
+                  ← {composeStep === 'content' ? 'Anderes Template' : 'Zurück'}
+                </button>
+                {composeStep !== 'review' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (composeStep === 'content') {
+                        if (!contentReady) {
+                          toast.error('Betreff und mindestens ein gültiger Block sind erforderlich.')
+                          return
+                        }
+                        setComposeStep('audience')
+                      } else {
+                        setComposeStep('review')
+                      }
+                    }}
+                    className="rounded-full bg-primary-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-700"
+                  >
+                    Weiter →
+                  </button>
+                )}
+              </div>
             </div>
             )
           })()}
 
         </div>
-      )}
+        )
+      })()}
 
       {/* Preview Modal */}
       {showPreview && blocksAreValid(blocks) && (
         <PreviewModal
           html={buildMultiBlockNewsletterHtml(PREVIEW_SITE_CONFIG, blocks, postsMap, '#')}
           onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {/* AI Co-Pilot — context-aware floating panel */}
+      {!automationFullscreen && !studioMode && (
+        <AiCopilot
+          context={
+            tab === 'dashboard' ? 'dashboard'
+              : tab === 'subscribers' ? 'subscribers'
+                : tab === 'send' && sendSubTab === 'compose' ? 'compose'
+                  : 'other'
+          }
         />
       )}
 
@@ -2047,8 +2509,8 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         <ListsTab />
       )}
 
-      {/* --- History Tab ------------------------------------------- */}
-      {tab === 'history' && (
+      {/* --- Send Center › Historie ------------------------------ */}
+      {tab === 'send' && sendSubTab === 'history' && (
         <HistoryTab
           sends={sends}
           posts={posts}
@@ -2061,8 +2523,8 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         />
       )}
 
-      {/* --- Bounces Tab ------------------------------------------- */}
-      {tab === 'bounces' && (
+      {/* --- Send Center › Probleme ------------------------------ */}
+      {tab === 'send' && sendSubTab === 'bounces' && (
         <BouncesTab />
       )}
 
