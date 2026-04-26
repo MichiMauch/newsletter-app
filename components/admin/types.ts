@@ -86,7 +86,8 @@ export interface SubscriberGrowth {
   new_count: number
 }
 
-export type Tab = 'dashboard' | 'compose' | 'subscribers' | 'history' | 'settings' | 'automations'
+export type Tab = 'dashboard' | 'send' | 'subscribers' | 'lists' | 'settings' | 'automations' | 'emails'
+export type SendSubTab = 'compose' | 'history' | 'bounces'
 
 export interface NewsletterDraft {
   id: string

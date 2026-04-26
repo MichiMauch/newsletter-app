@@ -95,7 +95,7 @@ export default function StatusPill() {
 
       {data.nextScheduledSend ? (
         <a
-          href="/admin/newsletter/history"
+          href="/admin/newsletter/send/history"
           className="flex items-center gap-1.5 text-[var(--text)] transition-colors hover:text-primary-600 dark:hover:text-primary-400"
           title={data.nextScheduledSend.subject}
         >

@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import type { Subscriber, NewsletterSend, OverallStatsData, SendTrend, SubscriberGrowth, Tab } from './types'
+import type { Subscriber, NewsletterSend, OverallStatsData, SendTrend, SubscriberGrowth, Tab, SendSubTab } from './types'
 import { formatDate } from './types'
+import DashboardTodayBlock from './DashboardTodayBlock'
 
 interface DashboardTabProps {
   subscribers: Subscriber[]
@@ -10,7 +11,7 @@ interface DashboardTabProps {
   overallStats: OverallStatsData | null
   subscriberGrowth: SubscriberGrowth[]
   sendTrends: SendTrend[]
-  setTab: (tab: Tab) => void
+  setTab: (tab: Tab, subTab?: SendSubTab) => void
   EngagementTrendChart: React.ComponentType<{ trends: SendTrend[] }>
   SubscriberGrowthChart: React.ComponentType<{ data: SubscriberGrowth[] }>
 }
@@ -29,17 +30,20 @@ export default function DashboardTab({
 
   return (
     <div className="space-y-6">
+      {/* Today */}
+      <DashboardTodayBlock />
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <button onClick={() => setTab('subscribers')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--color-primary)' }}>{confirmedCount}</div>
           <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Abonnenten</div>
         </button>
-        <button onClick={() => setTab('history')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
+        <button onClick={() => setTab('send', 'history')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>{sends.length}</div>
           <div className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Versendet</div>
         </button>
-        <button onClick={() => setTab('history')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
+        <button onClick={() => setTab('send', 'history')} className="glass-card p-5 text-left transition-colors hover:border-[var(--text-secondary)]">
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 40, fontWeight: 900, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--text)' }}>
             {overallStats ? `${overallStats.avg_click_rate}%` : '—'}
           </div>
@@ -65,7 +69,7 @@ export default function DashboardTab({
         <div className="glass-card p-5">
           <h3 className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Schnellzugriffe</h3>
           <div className="space-y-2">
-            <Link href="/admin/newsletter/compose" className="flex w-full items-center gap-3 border border-[var(--border)] p-3 text-left text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--text-secondary)]">
+            <Link href="/admin/newsletter/send" className="flex w-full items-center gap-3 border border-[var(--border)] p-3 text-left text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--text-secondary)]">
               <svg className="h-4 w-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
               Newsletter erstellen
             </Link>
@@ -94,7 +98,7 @@ export default function DashboardTab({
               {sends.slice(0, 5).map((s) => (
                 <button
                   key={s.id}
-                  onClick={() => setTab('history')}
+                  onClick={() => setTab('send', 'history')}
                   className="flex w-full items-center justify-between border border-[var(--border)] p-3 text-left transition-colors hover:border-[var(--text-secondary)]"
                 >
                   <div className="min-w-0 flex-1">
