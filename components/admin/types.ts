@@ -45,6 +45,8 @@ export interface NewsletterRecipientRow {
   bounce_sub_type: string | null
   bounce_message: string | null
   complained_at: string | null
+  engagement_score: number | null
+  engagement_tier: 'active' | 'moderate' | 'dormant' | 'cold' | null
 }
 
 export interface LinkClickRow {
@@ -93,8 +95,6 @@ export interface NewsletterDraft {
   templateId: string | null
   savedAt: string
 }
-
-export type ToastState = { type: 'success' | 'error' | 'info'; message: string } | null
 
 export type ConfirmActionState = { title: string; message: string; onConfirm: () => void } | null
 

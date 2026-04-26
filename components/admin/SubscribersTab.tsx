@@ -1,20 +1,22 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { Subscriber, ConfirmActionState, ToastState } from './types'
-import { formatDate, statusBadge, tierBadge } from './types'
+import type { Subscriber, ConfirmActionState } from './types'
+import { formatDate, statusBadge } from './types'
+import { useToast } from '../ui/ToastProvider'
+import { EngagementBadge } from '../ui/EngagementIndicator'
 
 interface SubscribersTabProps {
   subscribers: Subscriber[]
   setConfirmAction: (action: ConfirmActionState) => void
-  setToast: (toast: ToastState) => void
   loadData: () => void
 }
 
 type StatusFilter = 'all' | 'confirmed' | 'pending' | 'unsubscribed'
 type TierFilter = 'all' | 'active' | 'moderate' | 'dormant' | 'cold' | 'no-data'
 
-export default function SubscribersTab({ subscribers, setConfirmAction, setToast, loadData }: SubscribersTabProps) {
+export default function SubscribersTab({ subscribers, setConfirmAction, loadData }: SubscribersTabProps) {
+  const toast = useToast()
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   const [tagFilter, setTagFilter] = useState<string>('all')
@@ -42,13 +44,13 @@ export default function SubscribersTab({ subscribers, setConfirmAction, setToast
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setToast({ type: 'error', message: data.error || 'Aktion fehlgeschlagen.' })
+        toast.error(data.error || 'Aktion fehlgeschlagen.')
         return
       }
-      setToast({ type: 'success', message: successMsg })
+      toast.success(successMsg)
       loadData()
     } catch {
-      setToast({ type: 'error', message: 'Verbindung fehlgeschlagen.' })
+      toast.error('Verbindung fehlgeschlagen.')
     }
   }
 
@@ -142,7 +144,6 @@ export default function SubscribersTab({ subscribers, setConfirmAction, setToast
             <tbody>
               {filtered.map((s, i) => {
                 const sBadge = statusBadge[s.status] || statusBadge.pending
-                const tBadge = s.engagement_tier ? tierBadge[s.engagement_tier] : null
                 return (
                   <tr
                     key={s.id}
@@ -157,13 +158,7 @@ export default function SubscribersTab({ subscribers, setConfirmAction, setToast
                       </span>
                     </td>
                     <td className="px-5 py-3">
-                      {tBadge ? (
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${tBadge.cls}`}>
-                          {tBadge.label} ({s.engagement_score ?? 0})
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[var(--text-muted)]">—</span>
-                      )}
+                      <EngagementBadge tier={s.engagement_tier} score={s.engagement_score} />
                     </td>
                     <td className="px-5 py-3">
                       {s.tags && s.tags.length > 0 ? (

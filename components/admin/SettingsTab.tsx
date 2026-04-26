@@ -2,13 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { DEFAULT_SUBJECT_PROMPT, DEFAULT_INTRO_PROMPT } from '@/lib/ai-prompts'
-import type { ToastState } from './types'
+import { useToast } from '../ui/ToastProvider'
 
-interface SettingsTabProps {
-  setToast: (toast: ToastState) => void
-}
-
-export default function SettingsTab({ setToast }: SettingsTabProps) {
+export default function SettingsTab() {
+  const toast = useToast()
   const [subjectPrompt, setSubjectPrompt] = useState('')
   const [introPrompt, setIntroPrompt] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -52,12 +49,12 @@ export default function SettingsTab({ setToast }: SettingsTabProps) {
         }),
       ])
       if (subjRes.ok && introRes.ok) {
-        setToast({ type: 'success', message: 'Prompts gespeichert.' })
+        toast.success('Prompts gespeichert.')
       } else {
-        setToast({ type: 'error', message: 'Fehler beim Speichern der Prompts.' })
+        toast.error('Fehler beim Speichern der Prompts.')
       }
     } catch {
-      setToast({ type: 'error', message: 'Verbindung fehlgeschlagen.' })
+      toast.error('Verbindung fehlgeschlagen.')
     }
     setSaving(false)
   }
@@ -80,12 +77,12 @@ export default function SettingsTab({ setToast }: SettingsTabProps) {
         }),
       ])
       if (subjRes.ok && introRes.ok) {
-        setToast({ type: 'success', message: 'Auf Standard zurückgesetzt.' })
+        toast.success('Auf Standard zurückgesetzt.')
       } else {
-        setToast({ type: 'error', message: 'Fehler beim Zurücksetzen.' })
+        toast.error('Fehler beim Zurücksetzen.')
       }
     } catch {
-      setToast({ type: 'error', message: 'Verbindung fehlgeschlagen.' })
+      toast.error('Verbindung fehlgeschlagen.')
     }
     setSaving(false)
   }

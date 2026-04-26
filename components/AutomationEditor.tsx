@@ -9,6 +9,7 @@ import type { Automation } from './automation/types'
 import type { GraphNode, GraphEdge } from '@/lib/graph-types'
 import ConfirmModal from './ConfirmModal'
 import { AUTOMATION_PRESETS, type AutomationPreset } from './automation/presets'
+import { useToast } from './ui/ToastProvider'
 
 // React Flow is heavy — load client-side only
 const GraphEditor = dynamic(() => import('./automation/graph/GraphEditor'), { ssr: false })
@@ -49,14 +50,9 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([])
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([])
   const [editName, setEditName] = useState('')
-  const [toast, setToast] = useState<string | null>(null)
+  const toast = useToast()
   const [testing, setTesting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
-
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
 
   useEffect(() => { loadList() }, [])
 
@@ -90,7 +86,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
       onFullscreen?.(true)
     } catch (err) {
       console.error(err)
-      showToast('Automation konnte nicht geladen werden')
+      toast.error('Automation konnte nicht geladen werden')
     }
   }
 
@@ -130,9 +126,9 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
     setTesting(true)
     try {
       const result = await api('POST', '/api/admin/automations', { action: 'test-automation', automation_id: selectedId })
-      showToast(result.message || 'Testmail gesendet')
+      toast.success(result.message || 'Testmail gesendet')
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Fehler')
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     }
     setTesting(false)
   }
@@ -141,15 +137,6 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
     await api('POST', '/api/admin/automations', { action: 'toggle-active', id, active: current ? 0 : 1 })
     loadList()
   }
-
-  // ── Toast ────────────────────────────────────────────────────────────
-  const toastEl = toast && (
-    <div className="fixed inset-x-0 top-6 z-[9999] flex justify-center pointer-events-none">
-      <div className="pointer-events-auto border border-emerald-200/60 bg-emerald-50/90 px-5 py-3 text-sm font-medium text-emerald-800 shadow-xl backdrop-blur-md dark:border-emerald-700/60 dark:bg-emerald-900/80 dark:text-emerald-200">
-        {toast}
-      </div>
-    </div>
-  )
 
   const [creating, setCreating] = useState(false)
   const [showPresetPicker, setShowPresetPicker] = useState(false)
@@ -173,7 +160,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
       const result = await api('POST', '/api/admin/automations', body)
       router.push(`/admin/newsletter/automations/${result.id}`)
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Fehler')
+      toast.error(err instanceof Error ? err.message : 'Fehler')
     }
     setCreating(false)
   }
@@ -222,7 +209,6 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
             ))}
           </div>
         )}
-        {toastEl}
         {showPresetPicker && (
           <div
             className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
@@ -271,7 +257,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
           initialEdges={graphEdges}
           posts={posts}
           siteConfig={siteConfig}
-          onSaved={() => showToast('Graph gespeichert')}
+          onSaved={() => toast.success('Graph gespeichert')}
           toolbar={{
             name: editName,
             active: automation?.active ?? 0,
@@ -294,7 +280,6 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
           onCancel={() => setConfirmAction(null)}
         />
       )}
-      {toastEl}
     </div>
   )
 }

@@ -60,7 +60,7 @@ export async function GET(request: Request) {
         return new Response(JSON.stringify({ error: 'Ungültige sendDetail ID.' }), { status: 400, headers })
       }
       const [recipients, linkClicks, blocksJson] = await Promise.all([
-        getRecipientsForSend(id),
+        getRecipientsForSend(SITE_ID, id),
         getLinkClicksForSend(id),
         getSendBlocksJson(id),
       ])

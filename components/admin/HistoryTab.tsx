@@ -8,9 +8,11 @@ import type { SiteConfig } from '@/lib/site-config'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 import type {
   NewsletterSend, Post, SendTrend, SubscriberGrowth,
-  OverallStatsData, NewsletterRecipientRow, LinkClickRow, ToastState,
+  OverallStatsData, NewsletterRecipientRow, LinkClickRow,
 } from './types'
 import { formatDate } from './types'
+import { useToast } from '../ui/ToastProvider'
+import { EngagementDot } from '../ui/EngagementIndicator'
 
 interface HistoryTabProps {
   sends: NewsletterSend[]
@@ -19,15 +21,15 @@ interface HistoryTabProps {
   subscriberGrowth: SubscriberGrowth[]
   overallStats: OverallStatsData | null
   siteConfig: SiteConfig
-  setToast: (toast: ToastState) => void
   loadData: () => void
   streamingSend: (body: object, onProgress: (data: { sent: number; total: number; remaining: number }) => void) => Promise<{ sent: number; total: number }>
 }
 
 export default function HistoryTab({
   sends, posts, sendTrends, subscriberGrowth, overallStats,
-  siteConfig, setToast, loadData, streamingSend,
+  siteConfig, loadData, streamingSend,
 }: HistoryTabProps) {
+  const toast = useToast()
   const [selectedSend, setSelectedSend] = useState<NewsletterSend | null>(null)
   const [sendRecipients, setSendRecipients] = useState<NewsletterRecipientRow[]>([])
   const [sendLinkClicks, setSendLinkClicks] = useState<LinkClickRow[]>([])
@@ -60,14 +62,11 @@ export default function HistoryTab({
       if (failed > 0) {
         msg += ` ⚠ ${failed} Mails konnten nicht mehr storniert werden – sind möglicherweise schon raus.`
       }
-      setToast({
-        type: failed > 0 ? 'info' : 'success',
-        message: msg,
-      })
+      toast.toast(failed > 0 ? 'info' : 'success', msg)
       setCancelConfirmId(null)
       await loadData()
     } catch (err: unknown) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Unbekannter Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Unbekannter Fehler')
     } finally {
       setCancelling(false)
     }
@@ -91,7 +90,7 @@ export default function HistoryTab({
   async function handleRetryFailed(send: NewsletterSend) {
     const failedCount = sendRecipients.filter((r) => r.status === 'sent').length
     if (failedCount === 0) {
-      setToast({ type: 'info', message: 'Keine fehlgeschlagenen Empfänger.' })
+      toast.info('Keine fehlgeschlagenen Empfänger.')
       return
     }
     if (!retryConfirm) { setRetryConfirm(true); return }
@@ -100,13 +99,13 @@ export default function HistoryTab({
     try {
       const result = await streamingSend(
         { action: 'retry-failed', sendId: send.id },
-        ({ sent, total }) => setToast({ type: 'info', message: `${sent} von ${total} nachgesendet…` })
+        ({ sent, total }) => toast.info(`${sent} von ${total} nachgesendet…`)
       )
-      if (result.sent > 0) setToast({ type: 'success', message: `${result.sent} erfolgreich nachgesendet.` })
+      if (result.sent > 0) toast.success(`${result.sent} erfolgreich nachgesendet.`)
       await loadSendDetail(send)
       await loadData()
     } catch (err: unknown) {
-      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Unbekannter Fehler' })
+      toast.error(err instanceof Error ? err.message : 'Unbekannter Fehler')
     }
     setRetrying(false)
   }
@@ -245,7 +244,12 @@ export default function HistoryTab({
                             : null
                           return (
                             <tr key={r.id} className="border-b border-[var(--border)] last:border-0">
-                              <td className="px-5 py-3 text-[var(--text)]">{r.email}</td>
+                              <td className="px-5 py-3 text-[var(--text)]">
+                                <span className="inline-flex items-center gap-2">
+                                  <EngagementDot tier={r.engagement_tier} score={r.engagement_score} />
+                                  {r.email}
+                                </span>
+                              </td>
                               <td className="px-5 py-3"><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>{badge.label}</span></td>
                               <td className="px-5 py-3 text-[var(--text-secondary)]">{r.delivered_at ? formatDate(r.delivered_at) : '—'}</td>
                               <td className="px-5 py-3 text-right text-[var(--text)]">{r.click_count > 0 ? r.click_count : '—'}</td>
