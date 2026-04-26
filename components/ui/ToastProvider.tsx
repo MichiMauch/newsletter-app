@@ -26,10 +26,14 @@ interface ToastContextValue {
   error: (message: string) => void
   info: (message: string) => void
   activity: Toast[]
+  activityCount: number
   clearActivity: () => void
   isOverlayOpen: boolean
   pushOverlay: () => void
   popOverlay: () => void
+  isActivityOpen: boolean
+  toggleActivity: () => void
+  closeActivity: () => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -59,6 +63,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<Toast[]>([])
   const [activity, setActivity] = useState<Toast[]>([])
   const [overlayCount, setOverlayCount] = useState(0)
+  const [activityOpen, setActivityOpen] = useState(false)
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   useEffect(() => {
@@ -107,23 +112,36 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const pushOverlay = useCallback(() => setOverlayCount((c) => c + 1), [])
   const popOverlay = useCallback(() => setOverlayCount((c) => Math.max(0, c - 1)), [])
 
+  const toggleActivity = useCallback(() => setActivityOpen((o) => !o), [])
+  const closeActivity = useCallback(() => setActivityOpen(false), [])
+
   const value = useMemo<ToastContextValue>(() => ({
     toast,
     success: (m) => toast('success', m),
     error: (m) => toast('error', m),
     info: (m) => toast('info', m),
     activity,
+    activityCount: activity.length,
     clearActivity,
     isOverlayOpen: overlayCount > 0,
     pushOverlay,
     popOverlay,
-  }), [toast, activity, clearActivity, overlayCount, pushOverlay, popOverlay])
+    isActivityOpen: activityOpen,
+    toggleActivity,
+    closeActivity,
+  }), [toast, activity, clearActivity, overlayCount, pushOverlay, popOverlay, activityOpen, toggleActivity, closeActivity])
 
   return (
     <ToastContext.Provider value={value}>
       {children}
       <ToastViewport toasts={active} onDismiss={dismiss} />
-      {overlayCount === 0 && <ActivityLogPanel activity={activity} onClear={clearActivity} />}
+      {activityOpen && overlayCount === 0 && (
+        <ActivityLogPanel
+          activity={activity}
+          onClear={clearActivity}
+          onClose={closeActivity}
+        />
+      )}
     </ToastContext.Provider>
   )
 }
@@ -211,89 +229,65 @@ function ToastIcon({ type }: { type: ToastType }) {
 function ActivityLogPanel({
   activity,
   onClear,
+  onClose,
 }: {
   activity: Toast[]
   onClear: () => void
+  onClose: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const count = activity.length
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9998] flex flex-col items-end gap-2">
-      {open && (
-        <div className="w-80 max-w-[90vw] border border-[var(--border)] bg-[var(--background-elevated)] shadow-xl">
-          <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
-            <div className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-              Aktivität
-            </div>
-            <div className="flex items-center gap-2">
-              {count > 0 && (
-                <button
-                  onClick={onClear}
-                  className="text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
-                >
-                  Leeren
-                </button>
-              )}
-              <button
-                onClick={() => setOpen(false)}
-                aria-label="Schliessen"
-                className="text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div className="max-h-80 overflow-y-auto">
-            {count === 0 ? (
-              <div className="px-3 py-8 text-center text-xs text-[var(--text-muted)]">
-                Noch keine Aktivität
-              </div>
-            ) : (
-              <ul className="divide-y divide-[var(--border)]">
-                {activity.map((entry) => (
-                  <li key={entry.id} className="flex items-start gap-2 px-3 py-2">
-                    <ActivityDot type={entry.type} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs text-[var(--text)]">{entry.message}</div>
-                      <div className="text-[10px] text-[var(--text-muted)] tabular-nums">
-                        {formatRelative(entry.createdAt)}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+    <div className="fixed bottom-4 left-16 z-[9998] w-80 max-w-[90vw] border border-[var(--border)] bg-[var(--background-elevated)] shadow-xl">
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+        <div className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+          Aktivität
         </div>
-      )}
-
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Aktivitätslog öffnen"
-        className="flex items-center gap-2 border border-[var(--border)] bg-[var(--background-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] shadow-md transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text)]"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-          <path
-            fillRule="evenodd"
-            d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-            clipRule="evenodd"
-          />
-        </svg>
-        <span>Aktivität</span>
-        {count > 0 && (
-          <span className="border border-[var(--border)] bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--text)]">
-            {count}
-          </span>
+        <div className="flex items-center gap-2">
+          {count > 0 && (
+            <button
+              onClick={onClear}
+              className="text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+            >
+              Leeren
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Schliessen"
+            className="text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div className="max-h-80 overflow-y-auto">
+        {count === 0 ? (
+          <div className="px-3 py-8 text-center text-xs text-[var(--text-muted)]">
+            Noch keine Aktivität
+          </div>
+        ) : (
+          <ul className="divide-y divide-[var(--border)]">
+            {activity.map((entry) => (
+              <li key={entry.id} className="flex items-start gap-2 px-3 py-2">
+                <ActivityDot type={entry.type} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs text-[var(--text)]">{entry.message}</div>
+                  <div className="text-[10px] text-[var(--text-muted)] tabular-nums">
+                    {formatRelative(entry.createdAt)}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
-      </button>
+      </div>
     </div>
   )
 }

@@ -1950,8 +1950,42 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
           ))}
         </div>
 
-        {/* Bottom: Dark mode toggle */}
-        <div style={{ marginTop: 'auto', padding: '0 8px' }}>
+        {/* Bottom: Activity log + Dark mode toggle */}
+        <div style={{ marginTop: 'auto', padding: '0 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <button
+            onClick={toast.toggleActivity}
+            className={`sidebar-icon${toast.isActivityOpen ? ' active' : ''}`}
+            title="Aktivitätslog"
+            style={{ width: sidebarOpen ? '100%' : 40, justifyContent: sidebarOpen ? 'flex-start' : 'center', padding: sidebarOpen ? '0 12px' : 0, gap: sidebarOpen ? 10 : 0, position: 'relative' }}
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {sidebarOpen && <span className="sidebar-label" style={{ display: 'block', opacity: 1 }}>Aktivität</span>}
+            {toast.activityCount > 0 && (
+              <span
+                aria-label={`${toast.activityCount} Einträge`}
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: sidebarOpen ? 8 : 4,
+                  minWidth: 16,
+                  height: 16,
+                  padding: '0 4px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  lineHeight: '16px',
+                  textAlign: 'center',
+                  background: 'var(--color-primary)',
+                  color: 'white',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {toast.activityCount > 99 ? '99+' : toast.activityCount}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={toggleDarkMode}
             className="sidebar-icon"
