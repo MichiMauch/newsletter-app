@@ -1,7 +1,6 @@
 import { isAuthenticated } from '@/lib/admin-auth'
 import { predictEngagement } from '@/lib/engagement-prediction'
-
-const SITE_ID = 'kokomo' // TODO: from session/query param when multi-site
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated(request))) {

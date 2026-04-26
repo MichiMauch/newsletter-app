@@ -3,8 +3,7 @@ import { getDb } from '@/lib/db'
 import { newsletterSends, newsletterSubscribers, subscriberEngagement } from '@/lib/schema'
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import Anthropic from '@anthropic-ai/sdk'
-
-const SITE_ID = 'kokomo'
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 
 type Insight = 'dashboard-summary' | 'subscriber-risk'
 

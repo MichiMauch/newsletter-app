@@ -61,14 +61,12 @@ function saveActivity(entries: Toast[]) {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<Toast[]>([])
-  const [activity, setActivity] = useState<Toast[]>([])
+  // Lazy initializer: read localStorage during state init instead of in
+  // a mount effect — avoids a cascading re-render and keeps lint happy.
+  const [activity, setActivity] = useState<Toast[]>(loadActivity)
   const [overlayCount, setOverlayCount] = useState(0)
   const [activityOpen, setActivityOpen] = useState(false)
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-
-  useEffect(() => {
-    setActivity(loadActivity())
-  }, [])
 
   const dismiss = useCallback((id: string) => {
     setActive((curr) => curr.filter((t) => t.id !== id))

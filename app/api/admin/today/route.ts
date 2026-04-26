@@ -2,8 +2,7 @@ import { isAuthenticated } from '@/lib/admin-auth'
 import { getDb } from '@/lib/db'
 import { newsletterSubscribers, newsletterRecipients, newsletterSends } from '@/lib/schema'
 import { and, asc, eq, gt, gte, isNotNull, lte, sql } from 'drizzle-orm'
-
-const SITE_ID = 'kokomo'
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 
 function startOfTodayLocal(): string {
   const d = new Date()

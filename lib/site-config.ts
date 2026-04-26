@@ -2,6 +2,10 @@ import { eq } from 'drizzle-orm'
 import { getDb } from './db'
 import { sites } from './schema'
 
+// Single tenant for now. When multi-site auth lands, derive this from the
+// session/request — every callsite already uses the constant via this module.
+export const DEFAULT_SITE_ID = 'kokomo'
+
 export interface SiteConfig {
   id: string
   name: string

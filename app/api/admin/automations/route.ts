@@ -11,7 +11,7 @@ import {
 } from '@/lib/automation'
 import { getLastSendWithBlocks } from '@/lib/newsletter'
 import { sendMultiBlockNewsletterEmail } from '@/lib/notify'
-import { getSiteConfig } from '@/lib/site-config'
+import { getSiteConfig, DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 import { getGraph, saveGraph } from '@/lib/graph-automation'
 import { getContentItemsBySlugs } from '@/lib/content'
 import {
@@ -21,8 +21,6 @@ import {
   type PostRef,
 } from '@/lib/newsletter-blocks'
 import type { GraphNode, GraphEdge, EmailNodeConfig, LastNewsletterNodeConfig, NodeConfig, NodeType } from '@/lib/graph-types'
-
-const SITE_ID = 'kokomo' // TODO: from session/query param when multi-site
 
 export async function GET(request: Request) {
   if (!(await isAuthenticated(request))) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
@@ -54,13 +54,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
   const [testing, setTesting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
-  useEffect(() => { loadList() }, [])
-
-  useEffect(() => {
-    if (initialAutomationId) loadAutomation(initialAutomationId)
-  }, [initialAutomationId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadList = async () => {
+  async function loadList() {
     setLoading(true)
     try {
       const data = await api('GET', '/api/admin/automations?list=1')
@@ -72,7 +66,7 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
     setLoading(false)
   }
 
-  const loadAutomation = async (id: number) => {
+  async function loadAutomation(id: number) {
     try {
       const [info, graph] = await Promise.all([
         api('GET', `/api/admin/automations?id=${id}`),
@@ -89,6 +83,16 @@ export default function AutomationEditor({ posts, siteConfig, onFullscreen, init
       toast.error('Automation konnte nicht geladen werden')
     }
   }
+
+  useEffect(() => {
+    loadList()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (initialAutomationId) loadAutomation(initialAutomationId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAutomationId])
 
   const handleUpdateName = async () => {
     if (!automation || editName === automation.name) return

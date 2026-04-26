@@ -48,7 +48,7 @@ export default function DashboardTodayBlock() {
     return (
       <div className="glass-card flex items-center gap-2 p-4 text-sm text-[var(--text-muted)]">
         <span className="h-1.5 w-1.5 animate-pulse bg-[var(--text-muted)]" />
-        Lade „Heute" …
+        Lade „Heute“ …
       </div>
     )
   }

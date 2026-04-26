@@ -2,8 +2,7 @@ import { isAuthenticated } from '@/lib/admin-auth'
 import { getDb } from '@/lib/db'
 import { newsletterSubscribers, newsletterSends } from '@/lib/schema'
 import { and, asc, eq, gt, sql } from 'drizzle-orm'
-
-const SITE_ID = 'kokomo'
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 
 export async function GET(request: Request) {
   const headers = { 'Content-Type': 'application/json' }

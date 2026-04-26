@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { DEFAULT_SUBJECT_PROMPT, DEFAULT_INTRO_PROMPT } from '@/lib/ai-prompts'
 import { useToast } from '../ui/ToastProvider'
 
@@ -10,10 +10,6 @@ export default function SettingsTab() {
   const [introPrompt, setIntroPrompt] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    loadPrompts()
-  }, [])
 
   async function loadPrompts() {
     try {
@@ -32,6 +28,11 @@ export default function SettingsTab() {
     } catch { /* ignore */ }
     setLoaded(true)
   }
+
+  useEffect(() => {
+    loadPrompts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function savePrompts() {
     setSaving(true)

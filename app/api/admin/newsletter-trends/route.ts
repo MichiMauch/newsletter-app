@@ -1,7 +1,6 @@
 import { isAuthenticated } from '@/lib/admin-auth'
 import { getNewsletterTrends, getSubscriberGrowth } from '@/lib/newsletter'
-
-const SITE_ID = 'kokomo' // TODO: from session/query param when multi-site
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 
 export async function GET(request: Request) {
   if (!(await isAuthenticated(request))) {

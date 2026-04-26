@@ -49,10 +49,15 @@ export default function NodeConfigPanel({
   onClose: () => void
 }) {
   const [localConfig, setLocalConfig] = useState<NodeConfig>(config)
+  const [prevNodeId, setPrevNodeId] = useState(nodeId)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Sync when switching nodes
-  useEffect(() => { setLocalConfig(config) }, [nodeId])
+  // Reset local config when switching nodes — adjust state during render
+  // instead of in an effect (https://react.dev/reference/react/useState#storing-information-from-previous-renders)
+  if (nodeId !== prevNodeId) {
+    setPrevNodeId(nodeId)
+    setLocalConfig(config)
+  }
 
   // Debounced auto-save: only fires on user-initiated changes
   const updateConfig = (newConfig: NodeConfig) => {

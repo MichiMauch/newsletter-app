@@ -89,6 +89,14 @@ export interface SubscriberGrowth {
 export type Tab = 'dashboard' | 'send' | 'subscribers' | 'lists' | 'settings' | 'automations' | 'emails'
 export type SendSubTab = 'compose' | 'history' | 'bounces'
 
+export type AudienceMode = 'all' | 'engaged' | 'high'
+
+export interface AudienceFilter {
+  mode: AudienceMode
+  tags: string[]
+  count: number
+}
+
 export interface NewsletterDraft {
   id: string
   subject: string
@@ -134,3 +142,11 @@ export const statusBadge: Record<string, { label: string; cls: string }> = {
 
 export const inputCls =
   'w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30'
+
+export const blockTypeLabels: Record<import('@/lib/newsletter-blocks').NewsletterBlock['type'], string> = {
+  hero: 'Hero',
+  text: 'Freitext',
+  'link-list': 'Link-Liste',
+  last_newsletter: 'Letzter Newsletter',
+  recap_header: 'Recap-Trenner',
+}

@@ -9,8 +9,7 @@ import {
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { addTag, removeTag } from '@/lib/tags'
 import { getEngagementScore } from '@/lib/engagement'
-
-const SITE_ID = 'kokomo'
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 const SEND_HISTORY_LIMIT = 25
 
 interface SubscriberProfile {

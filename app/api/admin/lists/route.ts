@@ -3,8 +3,7 @@ import {
   getLists, getList, createList, renameList, deleteList,
   addMembers, removeMember, getListMembers,
 } from '@/lib/lists'
-
-const SITE_ID = 'kokomo' // TODO: aus Session/Query-Param bei Multi-Site
+import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 
 export async function GET(request: Request) {
   if (!(await isAuthenticated(request))) {
