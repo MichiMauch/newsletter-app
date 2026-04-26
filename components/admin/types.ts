@@ -23,6 +23,8 @@ export interface NewsletterSend {
   post_title: string
   subject: string
   sent_at: string
+  scheduled_for?: string | null
+  status?: string
   recipient_count: number
   delivered_count?: number
   clicked_count?: number

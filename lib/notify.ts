@@ -25,6 +25,21 @@ function fromAddress(site: SiteConfig): string {
   return `${site.from_name} <${site.from_email}>`
 }
 
+// ─── Storno einer geplanten Resend-Email ─────────────────────────────
+// Funktioniert nur, solange Resend die Mail noch nicht abgesendet hat.
+// Wirft nicht — Aufrufer entscheidet, was bei Fehler passiert.
+export async function cancelResendEmail(resendEmailId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const result = await getResend().emails.cancel(resendEmailId)
+    if (result.error) {
+      return { ok: false, error: result.error.message }
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
+  }
+}
+
 // ─── Newsletter: Bestätigungs-E-Mail ──────────────────────────────────
 
 export async function sendConfirmationEmail(site: SiteConfig, data: { email: string; token: string }) {

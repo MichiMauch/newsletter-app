@@ -9,14 +9,14 @@
  *    dann bis zum Sendezeitpunkt — keine eigene Queue-Infra nötig.
  */
 
-import { and, eq, sql, lte, asc } from 'drizzle-orm'
+import { and, eq, sql, lte, asc, inArray, isNotNull } from 'drizzle-orm'
 import { getDb } from './db'
 import { scheduledSends } from './schema'
 import { getOptimalSendTime } from './send-time-optimization'
-import { sendMultiBlockNewsletterEmail } from './notify'
+import { sendMultiBlockNewsletterEmail, cancelResendEmail } from './notify'
 import { getContentItemsBySlugs } from './content'
 import { getSiteConfig } from './site-config'
-import { getSendForRetry } from './newsletter'
+import { getSendForRetry, markScheduledSendAsSent, updateRecipientResendId } from './newsletter'
 import type { NewsletterBlock } from './newsletter-blocks'
 
 const PUSH_HORIZON_HOURS = 1 // Slots innerhalb der nächsten Stunde direkt schieben
@@ -29,20 +29,21 @@ export async function enqueueScheduledSends(
   siteId: string,
   sendId: number,
   recipients: { email: string; token: string }[],
+  fromUtc?: Date,
 ): Promise<{ enqueued: number; earliest: string; latest: string }> {
   if (recipients.length === 0) {
     return { enqueued: 0, earliest: '', latest: '' }
   }
 
   const db = getDb()
-  const now = new Date()
+  const baseTime = fromUtc ?? new Date()
 
   const rows: typeof scheduledSends.$inferInsert[] = []
   let earliest = ''
   let latest = ''
 
   for (const r of recipients) {
-    const opt = await getOptimalSendTime(siteId, r.email, now)
+    const opt = await getOptimalSendTime(siteId, r.email, baseTime)
     rows.push({
       sendId,
       siteId,
@@ -62,6 +63,100 @@ export async function enqueueScheduledSends(
   }
 
   return { enqueued: rows.length, earliest, latest }
+}
+
+// ─── Enqueue mit fixer Zeit (manueller geplanter Versand) ────────────
+
+export async function enqueueUniformSchedule(
+  siteId: string,
+  sendId: number,
+  recipients: { email: string; token: string }[],
+  scheduledAtUtc: string,
+): Promise<{ enqueued: number }> {
+  if (recipients.length === 0) {
+    return { enqueued: 0 }
+  }
+
+  const db = getDb()
+  const rows: typeof scheduledSends.$inferInsert[] = recipients.map((r) => ({
+    sendId,
+    siteId,
+    email: r.email,
+    token: r.token,
+    scheduledAtUtc,
+    status: 'pending',
+  }))
+
+  const CHUNK_SIZE = 50
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    await db.insert(scheduledSends).values(rows.slice(i, i + CHUNK_SIZE))
+  }
+
+  return { enqueued: rows.length }
+}
+
+// ─── Cancel: stoppt pending Slots + ruft Resend-Cancel für bereits gepushte
+// Slots auf (deren Mail noch nicht versandt wurde) ────────────────────
+
+export async function cancelScheduledSend(sendId: number): Promise<{
+  cancelled_pending: number
+  cancelled_pushed: number
+  failed_pushed: number
+}> {
+  const db = getDb()
+
+  // 1) Pending Slots → status='cancelled', Cron pickt sie nicht mehr auf.
+  const pendingCancelled = await db.update(scheduledSends)
+    .set({ status: 'cancelled' })
+    .where(and(
+      eq(scheduledSends.sendId, sendId),
+      eq(scheduledSends.status, 'pending'),
+    ))
+    .returning({ id: scheduledSends.id })
+
+  // 2) Gepushte Slots → Resend Cancel API für jede resendEmailId.
+  // Resend storniert, solange die Mail noch nicht raus ist (status='scheduled').
+  const pushedSlots = await db.select({ id: scheduledSends.id, resendEmailId: scheduledSends.resendEmailId })
+    .from(scheduledSends)
+    .where(and(
+      eq(scheduledSends.sendId, sendId),
+      eq(scheduledSends.status, 'pushed'),
+      isNotNull(scheduledSends.resendEmailId),
+    ))
+
+  let cancelledPushed = 0
+  let failedPushed = 0
+  const cancelledIds: number[] = []
+  const failedIds: { id: number; error: string }[] = []
+
+  for (const slot of pushedSlots) {
+    if (!slot.resendEmailId) continue
+    const result = await cancelResendEmail(slot.resendEmailId)
+    if (result.ok) {
+      cancelledIds.push(slot.id)
+      cancelledPushed++
+    } else {
+      failedIds.push({ id: slot.id, error: result.error ?? 'unknown' })
+      failedPushed++
+    }
+  }
+
+  if (cancelledIds.length > 0) {
+    await db.update(scheduledSends)
+      .set({ status: 'cancelled' })
+      .where(inArray(scheduledSends.id, cancelledIds))
+  }
+  for (const f of failedIds) {
+    await db.update(scheduledSends)
+      .set({ lastError: `cancel failed: ${f.error}` })
+      .where(eq(scheduledSends.id, f.id))
+  }
+
+  return {
+    cancelled_pending: pendingCancelled.length,
+    cancelled_pushed: cancelledPushed,
+    failed_pushed: failedPushed,
+  }
 }
 
 // ─── Picker: schiebt fällige Slots an Resend ──────────────────────────
@@ -160,6 +255,11 @@ export async function pushDueSendsToResend(): Promise<{
             attempts: row.attempts + 1,
           })
           .where(eq(scheduledSends.id, row.id))
+        // Auch newsletter_recipients aktualisieren — sonst zeigt die History
+        // diese Empfänger als "fehlgeschlagen" an (resend_email_id war NULL).
+        if (result.resendEmailId) {
+          await updateRecipientResendId(sendId, row.email, result.resendEmailId)
+        }
         pushed++
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown'
@@ -171,9 +271,37 @@ export async function pushDueSendsToResend(): Promise<{
         if (finalStatus === 'failed') failed++
       }
     }
+
+    // Wenn keine pending-Slots mehr für diesen Send existieren, parent als 'sent' markieren.
+    const remaining = await db.select({ id: scheduledSends.id })
+      .from(scheduledSends)
+      .where(and(eq(scheduledSends.sendId, sendId), eq(scheduledSends.status, 'pending')))
+      .limit(1)
+    if (remaining.length === 0) {
+      await markScheduledSendAsSent(sendId)
+    }
   }
 
   return { pushed, failed, skipped }
+}
+
+// ─── Watchdog: parents auf 'sent' setzen, sobald Plan-Zeit vorbei ist ──
+
+export async function flushDoneScheduledSends(): Promise<{ flushed: number }> {
+  const db = getDb()
+  const result = await db.run(sql`
+    UPDATE newsletter_sends
+    SET status = 'sent'
+    WHERE status = 'scheduled'
+      AND scheduled_for IS NOT NULL
+      AND scheduled_for <= datetime('now')
+      AND NOT EXISTS (
+        SELECT 1 FROM scheduled_sends
+        WHERE scheduled_sends.send_id = newsletter_sends.id
+          AND scheduled_sends.status = 'pending'
+      )
+  `)
+  return { flushed: Number(result.rowsAffected ?? 0) }
 }
 
 // ─── Status pro Send (für Admin-UI) ────────────────────────────────────

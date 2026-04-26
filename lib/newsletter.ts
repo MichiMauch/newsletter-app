@@ -24,6 +24,7 @@ export interface NewsletterSend {
   post_title: string
   subject: string
   sent_at: string
+  scheduled_for: string | null
   recipient_count: number
   status: string
 }
@@ -238,7 +239,13 @@ export async function deleteSubscriber(id: number): Promise<void> {
 // ─── Send History ──────────────────────────────────────────────────────
 
 export async function recordNewsletterSend(siteId: string, data: {
-  post_slug: string; post_title: string; subject: string; recipient_count: number; blocks_json?: string
+  post_slug: string
+  post_title: string
+  subject: string
+  recipient_count: number
+  blocks_json?: string
+  scheduled_for?: string
+  status?: 'sent' | 'scheduled'
 }): Promise<number> {
   const db = getDb()
   const result = await db.insert(newsletterSends).values({
@@ -248,8 +255,32 @@ export async function recordNewsletterSend(siteId: string, data: {
     subject: data.subject,
     recipientCount: data.recipient_count,
     blocksJson: data.blocks_json ?? null,
+    scheduledFor: data.scheduled_for ?? null,
+    status: data.status ?? 'sent',
   }).returning({ id: newsletterSends.id })
   return result[0].id
+}
+
+export async function cancelNewsletterSend(sendId: number): Promise<void> {
+  const db = getDb()
+  await db.update(newsletterSends)
+    .set({ status: 'cancelled' })
+    .where(and(eq(newsletterSends.id, sendId), eq(newsletterSends.status, 'scheduled')))
+}
+
+export async function markScheduledSendAsSent(sendId: number): Promise<void> {
+  const db = getDb()
+  // Nur als 'sent' markieren, wenn der geplante Zeitpunkt erreicht ist.
+  // Bei sofortigem Push eines geplanten Sends wartet der parent-Status, bis
+  // scheduled_for tatsächlich vorbei ist — sonst zeigt die UI 'sent' an,
+  // obwohl Resend die Mail erst später rausschickt.
+  await db.run(sql`
+    UPDATE newsletter_sends
+    SET status = 'sent'
+    WHERE id = ${sendId}
+      AND status = 'scheduled'
+      AND (scheduled_for IS NULL OR scheduled_for <= datetime('now'))
+  `)
 }
 
 export async function getLastSendWithBlocks(siteId: string): Promise<{ subject: string; blocks_json: string; post_slug: string } | null> {
@@ -283,7 +314,8 @@ export async function getNewsletterSends(siteId: string): Promise<NewsletterSend
     .orderBy(sql`${newsletterSends.sentAt} DESC`)
   return rows.map((r) => ({
     id: r.id, site_id: r.siteId, post_slug: r.postSlug, post_title: r.postTitle,
-    subject: r.subject, sent_at: r.sentAt, recipient_count: r.recipientCount, status: r.status,
+    subject: r.subject, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
+    recipient_count: r.recipientCount, status: r.status,
   }))
 }
 
@@ -400,10 +432,11 @@ export async function getNewsletterSendsWithStats(siteId: string): Promise<Newsl
   const db = getDb()
   const rows = await db.select().from(newsletterSends)
     .where(eq(newsletterSends.siteId, siteId))
-    .orderBy(sql`${newsletterSends.sentAt} DESC`)
+    .orderBy(sql`COALESCE(${newsletterSends.scheduledFor}, ${newsletterSends.sentAt}) DESC`)
   return rows.map((r) => ({
     id: r.id, site_id: r.siteId, post_slug: r.postSlug, post_title: r.postTitle,
-    subject: r.subject, sent_at: r.sentAt, recipient_count: r.recipientCount, status: r.status,
+    subject: r.subject, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
+    recipient_count: r.recipientCount, status: r.status,
     delivered_count: r.deliveredCount, clicked_count: r.clickedCount,
     bounced_count: r.bouncedCount, complained_count: r.complainedCount,
   }))

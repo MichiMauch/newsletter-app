@@ -5,6 +5,7 @@ import TiptapEditor from './TiptapEditor'
 import AutomationEditor from './AutomationEditor'
 import DashboardTab from './admin/DashboardTab'
 import SubscribersTab from './admin/SubscribersTab'
+import ListsTab from './admin/ListsTab'
 import SettingsTab from './admin/SettingsTab'
 import HistoryTab from './admin/HistoryTab'
 import EmailTemplatesTab from './admin/EmailTemplatesTab'
@@ -100,7 +101,7 @@ interface SubscriberGrowth {
   new_count: number
 }
 
-type Tab = 'dashboard' | 'compose' | 'subscribers' | 'history' | 'settings' | 'automations' | 'emails'
+type Tab = 'dashboard' | 'compose' | 'subscribers' | 'lists' | 'history' | 'settings' | 'automations' | 'emails'
 
 function tabToHref(tab: Tab): string {
   return tab === 'dashboard' ? '/admin/newsletter' : `/admin/newsletter/${tab}`
@@ -109,7 +110,7 @@ function tabToHref(tab: Tab): string {
 function pathToTab(pathname: string): Tab {
   const segment = pathname.replace('/admin/newsletter', '').replace(/^\//, '').split('/')[0]
   if (!segment) return 'dashboard'
-  const tabs: Tab[] = ['compose', 'subscribers', 'history', 'settings', 'automations']
+  const tabs: Tab[] = ['compose', 'subscribers', 'lists', 'history', 'settings', 'automations']
   return tabs.includes(segment as Tab) ? (segment as Tab) : 'dashboard'
 }
 type ComposeMode = 'pick-template' | 'fill-slots' | 'build-template'
@@ -132,6 +133,23 @@ function formatDateShort(dateStr: string): string {
     month: 'short',
     year: 'numeric',
   })
+}
+
+// `<input type="datetime-local">` returns "YYYY-MM-DDTHH:mm" without timezone —
+// browser interprets it as local time. Construct a Date so the value matches
+// what the user sees in their picker (then we serialize to UTC for the API).
+function parseScheduleLocal(value: string): Date | null {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function defaultScheduleValue(): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000) // +1h
+  d.setMinutes(0, 0, 0)
+  // Serialize as YYYY-MM-DDTHH:mm in local TZ for datetime-local input
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
@@ -1165,6 +1183,14 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   // Send-Time Optimization
   const [useSto, setUseSto] = useState(false)
 
+  // Geplanter Versand
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now')
+  const [scheduleLocal, setScheduleLocal] = useState('') // datetime-local value
+
+  // Empfänger-Listen (manuelle Listen)
+  const [availableLists, setAvailableLists] = useState<{ id: number; name: string; member_count: number }[]>([])
+  const [selectedListId, setSelectedListId] = useState<number | null>(null)
+
   // Reporting state
   const [sendTrends, setSendTrends] = useState<SendTrend[]>([])
   const [subscriberGrowth, setSubscriberGrowth] = useState<SubscriberGrowth[]>([])
@@ -1173,7 +1199,10 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
   const [automationFullscreen, setAutomationFullscreen] = useState(false)
 
   const confirmedCount = subscribers.filter((s) => s.status === 'confirmed').length
-  const audienceCount = audienceFilter ? audienceFilter.count : confirmedCount
+  const selectedList = selectedListId ? availableLists.find((l) => l.id === selectedListId) : null
+  const audienceCount = selectedList
+    ? selectedList.member_count
+    : (audienceFilter ? audienceFilter.count : confirmedCount)
   const canSend = subject.trim() !== '' && blocksAreValid(blocks) && audienceCount > 0
   const usedSlugsKey = useMemo(
     () => [...new Set([...getUsedSlugs(blocks)])].sort().join('|'),
@@ -1184,6 +1213,20 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     setCustomTemplates(loadCustomTemplates())
     setDrafts(loadDrafts())
   }, [])
+
+  useEffect(() => {
+    if (tab !== 'compose') return
+    fetch('/api/admin/lists')
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.lists) {
+          setAvailableLists(data.lists.map((l: { id: number; name: string; member_count: number }) => ({
+            id: l.id, name: l.name, member_count: l.member_count,
+          })))
+        }
+      })
+      .catch(() => { /* silent */ })
+  }, [tab])
 
   useEffect(() => {
     // Reset audience filter whenever the post selection changes — the cached
@@ -1411,6 +1454,17 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
 
   function handleSendClick() {
     if (!canSend) return
+    if (scheduleMode === 'scheduled') {
+      const date = parseScheduleLocal(scheduleLocal)
+      if (!date) {
+        setToast({ type: 'error', message: 'Bitte ein gültiges Datum & Uhrzeit wählen.' })
+        return
+      }
+      if (date.getTime() <= Date.now() + 60_000) {
+        setToast({ type: 'error', message: 'Geplanter Zeitpunkt muss in der Zukunft liegen.' })
+        return
+      }
+    }
     setConfirmSend(true)
   }
 
@@ -1441,14 +1495,43 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     setConfirmSend(false)
     setSending(true)
     try {
-      const audiencePayload = audienceFilter
+      const audiencePayload = !selectedListId && audienceFilter
         ? { tags: audienceFilter.tags, minSignal: audienceFilter.mode === 'high' ? 5 : 1 }
         : undefined
-      if (useSto) {
+      const listIdPayload = selectedListId ?? undefined
+      const scheduledDate = scheduleMode === 'scheduled' ? parseScheduleLocal(scheduleLocal) : null
+      if (scheduledDate) {
         const res = await fetch('/api/admin/newsletter', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send', subject, blocks, useSto: true, audienceFilter: audiencePayload }),
+          body: JSON.stringify({
+            action: 'send', subject, blocks,
+            audienceFilter: audiencePayload,
+            listId: listIdPayload,
+            scheduledFor: scheduledDate.toISOString(),
+            useSto: useSto || undefined,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Fehler beim Planen.')
+        const when = scheduledDate.toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })
+        if (useSto) {
+          const latest = data.latest ? new Date(data.latest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
+          setToast({
+            type: 'success',
+            message: `Newsletter geplant ab ${when} mit STO (${data.enqueued} Empfänger, letzter spätestens ${latest}).`,
+          })
+        } else {
+          setToast({
+            type: 'success',
+            message: `Newsletter geplant für ${when} (${data.enqueued} Empfänger).`,
+          })
+        }
+      } else if (useSto) {
+        const res = await fetch('/api/admin/newsletter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send', subject, blocks, useSto: true, audienceFilter: audiencePayload, listId: listIdPayload }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Fehler beim Versenden.')
@@ -1460,7 +1543,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
         })
       } else {
         const result = await streamingSend(
-          { action: 'send', subject, blocks, audienceFilter: audiencePayload },
+          { action: 'send', subject, blocks, audienceFilter: audiencePayload, listId: listIdPayload },
           ({ sent, total }) => setToast({ type: 'info', message: `${sent} von ${total} gesendet…` })
         )
         setToast({ type: 'success', message: `Erfolgreich an ${result.sent} Empfänger versendet.` })
@@ -1505,6 +1588,10 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
     {
       id: 'subscribers', label: 'Abonnenten', href: '/admin/newsletter/subscribers',
       icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77M12 15.07a5.98 5.98 0 00-1.654-.76M15 19.128H5.228A2 2 0 013 17.16V17" /></svg>,
+    },
+    {
+      id: 'lists', label: 'Listen', href: '/admin/newsletter/lists',
+      icon: <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>,
     },
     {
       id: 'history', label: 'Historie', href: '/admin/newsletter/history',
@@ -1745,6 +1832,41 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 onAudienceChange={setAudienceFilter}
               />
 
+              {availableLists.length > 0 && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-[var(--text)]">Empfänger aus Liste</span>
+                    {selectedListId !== null && (
+                      <button
+                        onClick={() => setSelectedListId(null)}
+                        className="text-xs text-[var(--text-secondary)] underline hover:text-[var(--text)]"
+                      >
+                        Liste deaktivieren
+                      </button>
+                    )}
+                  </div>
+                  <p className="mb-3 text-xs text-[var(--text-muted)]">
+                    Statt an alle Abonnenten geht der Newsletter nur an die Mitglieder dieser Liste. Praktisch für Tests.
+                  </p>
+                  <select
+                    value={selectedListId ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setSelectedListId(v === '' ? null : parseInt(v, 10))
+                      if (v !== '') setAudienceFilter(null)
+                    }}
+                    className={inputCls + ' w-full'}
+                  >
+                    <option value="">— Alle Abonnenten / Segment —</option>
+                    {availableLists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} ({l.member_count})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_280px]">
                 {/* Left: Template slots */}
                 <div className="space-y-1">
@@ -1811,7 +1933,49 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 </div>
               </div>
 
-              <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 cursor-pointer">
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
+                <span className="mb-3 block text-sm font-medium text-[var(--text)]">Versand-Zeitpunkt</span>
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-center gap-3">
+                    <input
+                      type="radio"
+                      name="schedule-mode"
+                      checked={scheduleMode === 'now'}
+                      onChange={() => setScheduleMode('now')}
+                      className="h-4 w-4 cursor-pointer"
+                    />
+                    <span className="text-sm text-[var(--text)]">Sofort senden</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-3">
+                    <input
+                      type="radio"
+                      name="schedule-mode"
+                      checked={scheduleMode === 'scheduled'}
+                      onChange={() => {
+                        setScheduleMode('scheduled')
+                        if (!scheduleLocal) setScheduleLocal(defaultScheduleValue())
+                      }}
+                      className="h-4 w-4 cursor-pointer"
+                    />
+                    <span className="text-sm text-[var(--text)]">Geplant für…</span>
+                  </label>
+                  {scheduleMode === 'scheduled' && (
+                    <div className="ml-7 mt-2 space-y-1">
+                      <input
+                        type="datetime-local"
+                        value={scheduleLocal}
+                        onChange={(e) => setScheduleLocal(e.target.value)}
+                        className={inputCls + ' w-full max-w-xs'}
+                      />
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Versand erfolgt zum gewählten Zeitpunkt (lokale Zeit). Resend übernimmt das Queueing.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
                 <input
                   type="checkbox"
                   checked={useSto}
@@ -1821,7 +1985,9 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 <span className="flex-1">
                   <span className="block text-sm font-medium text-[var(--text)]">Send-Time Optimization</span>
                   <span className="block text-xs text-[var(--text-muted)]">
-                    Empfänger mit Profil bekommen die Mail zu ihrer persönlichen Lieblingszeit (gelernt aus bisherigen Öffnungen). Alle anderen erhalten sie sofort.
+                    {scheduleMode === 'scheduled'
+                      ? 'Ab dem geplanten Zeitpunkt: Empfänger mit Profil bekommen die Mail zu ihrer Lieblingszeit nach diesem Termin. Alle anderen erhalten sie genau zum geplanten Zeitpunkt.'
+                      : 'Empfänger mit Profil bekommen die Mail zu ihrer persönlichen Lieblingszeit (gelernt aus bisherigen Öffnungen). Alle anderen erhalten sie sofort.'}
                   </span>
                 </span>
               </label>
@@ -1854,8 +2020,8 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                   className="flex-1 rounded-full bg-primary-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-700 hover:shadow-md disabled:opacity-50"
                 >
                   {sending
-                    ? 'Wird versendet…'
-                    : `An ${audienceCount} Abonnent${audienceCount !== 1 ? 'en' : ''} senden${audienceFilter ? ' (Segment)' : ''}`}
+                    ? (scheduleMode === 'scheduled' ? 'Wird geplant…' : 'Wird versendet…')
+                    : `${scheduleMode === 'scheduled' ? 'Versand planen' : 'Senden'} • ${audienceCount} Abonnent${audienceCount !== 1 ? 'en' : ''}${audienceFilter ? ' (Segment)' : ''}`}
                 </button>
               </div>
             </div>
@@ -1882,6 +2048,11 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
           setToast={setToast}
           loadData={loadData}
         />
+      )}
+
+      {/* --- Lists Tab ---------------------------------------------- */}
+      {tab === 'lists' && (
+        <ListsTab setToast={setToast} />
       )}
 
       {/* --- History / Reporting Tab ------------------------------- */}
@@ -1942,16 +2113,34 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
       )}
 
       {/* --- Confirm Send Modal --------------------------------- */}
-      {confirmSend && (
+      {confirmSend && (() => {
+        const scheduledDate = scheduleMode === 'scheduled' ? parseScheduleLocal(scheduleLocal) : null
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl backdrop-blur-xl">
-            <h3 className="mb-2 text-lg font-semibold text-[var(--text)]">Newsletter versenden</h3>
+            <h3 className="mb-2 text-lg font-semibold text-[var(--text)]">
+              {scheduledDate ? 'Newsletter planen' : 'Newsletter versenden'}
+            </h3>
             <p className="mb-1 text-sm text-[var(--text-secondary)]">
-              Bist du sicher, dass du den Newsletter versenden möchtest?
+              {scheduledDate
+                ? 'Bist du sicher, dass du den Newsletter zum gewählten Zeitpunkt verschicken möchtest?'
+                : 'Bist du sicher, dass du den Newsletter versenden möchtest?'}
             </p>
             <p className="mb-2 text-sm font-medium text-[var(--text)]">
               &laquo;{subject}&raquo; an {audienceCount} Abonnent{audienceCount !== 1 ? 'en' : ''}
             </p>
+            {scheduledDate && (
+              <p className="mb-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                Geplant für: <span className="font-medium text-[var(--text)]">
+                  {scheduledDate.toLocaleString('de-CH', { dateStyle: 'long', timeStyle: 'short' })}
+                </span>
+                {useSto && (
+                  <span className="mt-1 block text-[var(--text-muted)]">
+                    Mit Send-Time Optimization — Empfänger ohne Profil bekommen die Mail genau zu diesem Zeitpunkt, mit Profil zur persönlichen Lieblingszeit danach.
+                  </span>
+                )}
+              </p>
+            )}
             {audienceFilter && (
               <p className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
                 Segment: <span className="font-medium text-[var(--text)]">
@@ -1960,7 +2149,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 {' '}({audienceFilter.tags.join(', ')})
               </p>
             )}
-            {!audienceFilter && <div className="mb-6" />}
+            {!audienceFilter && !scheduledDate && <div className="mb-6" />}
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setConfirmSend(false)}
@@ -1972,12 +2161,13 @@ export default function AdminNewsletter({ initialTab = 'dashboard', automationId
                 onClick={handleSendConfirmed}
                 className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700"
               >
-                Jetzt senden
+                {scheduledDate ? 'Versand planen' : 'Jetzt senden'}
               </button>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* --- Test Send Modal ------------------------------------ */}
       {showTestSend && (

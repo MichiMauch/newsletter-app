@@ -15,11 +15,18 @@ import {
   getOverallNewsletterStats,
   deleteSubscriber,
   unsubscribeById,
+  cancelNewsletterSend,
 } from '@/lib/newsletter'
 import { sendNewsletterEmail, sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { getContentItems, getContentItemsBySlugs } from '@/lib/content'
 import { getSiteConfig } from '@/lib/site-config'
-import { enqueueScheduledSends, pushDueSendsToResend } from '@/lib/scheduled-sends'
+import {
+  enqueueScheduledSends,
+  enqueueUniformSchedule,
+  cancelScheduledSend,
+  pushDueSendsToResend,
+} from '@/lib/scheduled-sends'
+import { getList, getListEmailsForSend } from '@/lib/lists'
 import { bootstrapProfilesFromClicks } from '@/lib/send-time-optimization'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 
@@ -91,7 +98,10 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json()
-    const { action, subject, subscriberId, blocks, testEmail, sendId: retrySendId, useSto, audienceFilter } = body
+    const {
+      action, subject, subscriberId, blocks, testEmail,
+      sendId: retrySendId, useSto, audienceFilter, scheduledFor, listId,
+    } = body
     const site = await getSiteConfig(SITE_ID)
 
     // ─── STO Bootstrap (admin-trigger) ───
@@ -193,22 +203,57 @@ export async function POST(request: Request) {
       }
     }
 
+    // ─── Cancel a scheduled send ───
+    if (action === 'cancel-scheduled') {
+      const id = typeof retrySendId === 'number' ? retrySendId : parseInt(String(retrySendId), 10)
+      if (!id || Number.isNaN(id)) {
+        return new Response(JSON.stringify({ error: 'sendId ist erforderlich.' }), { status: 400, headers })
+      }
+      const result = await cancelScheduledSend(id)
+      await cancelNewsletterSend(id)
+      return new Response(JSON.stringify({
+        ok: true,
+        cancelled_pending: result.cancelled_pending,
+        cancelled_pushed: result.cancelled_pushed,
+        failed_pushed: result.failed_pushed,
+      }), { status: 200, headers })
+    }
+
     // ─── Send newsletter ───
     if (action !== 'send' || !subject) {
       return new Response(JSON.stringify({ error: 'action=send und subject sind erforderlich.' }), { status: 400, headers })
     }
 
     const parsedFilter = parseAudienceFilter(audienceFilter)
-    const subscribers = parsedFilter
-      ? await getSubscribersByTagSignal(SITE_ID, parsedFilter.tags, parsedFilter.minSignal)
-      : await getConfirmedSubscribers(SITE_ID)
-    if (subscribers.length === 0) {
-      return new Response(JSON.stringify({
-        error: parsedFilter
-          ? 'Keine Abonnenten matchen das gewählte Segment.'
-          : 'Keine bestätigten Abonnenten vorhanden.',
-      }), { status: 400, headers })
+    const parsedListId = typeof listId === 'number' && Number.isFinite(listId) ? listId : null
+
+    let subscribers: { email: string; token: string }[]
+    let audienceLabel: 'list' | 'segment' | 'all'
+
+    if (parsedListId !== null) {
+      const list = await getList(parsedListId)
+      if (!list || list.site_id !== SITE_ID) {
+        return new Response(JSON.stringify({ error: 'Liste nicht gefunden.' }), { status: 404, headers })
+      }
+      subscribers = await getListEmailsForSend(parsedListId)
+      audienceLabel = 'list'
+      if (subscribers.length === 0) {
+        return new Response(JSON.stringify({ error: 'Liste hat keine Mitglieder.' }), { status: 400, headers })
+      }
+    } else if (parsedFilter) {
+      subscribers = await getSubscribersByTagSignal(SITE_ID, parsedFilter.tags, parsedFilter.minSignal)
+      audienceLabel = 'segment'
+      if (subscribers.length === 0) {
+        return new Response(JSON.stringify({ error: 'Keine Abonnenten matchen das gewählte Segment.' }), { status: 400, headers })
+      }
+    } else {
+      subscribers = await getConfirmedSubscribers(SITE_ID)
+      audienceLabel = 'all'
+      if (subscribers.length === 0) {
+        return new Response(JSON.stringify({ error: 'Keine bestätigten Abonnenten vorhanden.' }), { status: 400, headers })
+      }
     }
+    void audienceLabel // reserved for future analytics
 
     if (!blocks || !Array.isArray(blocks) || blocks.length === 0) {
       return new Response(JSON.stringify({ error: 'blocks sind erforderlich.' }), { status: 400, headers })
@@ -220,6 +265,47 @@ export async function POST(request: Request) {
 
     const firstSlug = slugs.size > 0 ? [...slugs][0] : 'multi-block'
     const firstPost = postsMap[firstSlug]
+
+    // ─── Geplanter Versand (fixe Zeit oder STO ab geplantem Zeitpunkt) ───
+    const scheduledForDate = parseScheduledFor(scheduledFor)
+    if (scheduledForDate) {
+      const scheduledIso = scheduledForDate.toISOString()
+      const sendId = await recordNewsletterSend(SITE_ID, {
+        post_slug: firstSlug,
+        post_title: firstPost?.title ?? subject,
+        subject,
+        recipient_count: subscribers.length,
+        blocks_json: JSON.stringify(typedBlocks),
+        scheduled_for: scheduledIso,
+        status: 'scheduled',
+      })
+      await recordNewsletterRecipientsBatch(
+        subscribers.map((s) => ({ send_id: sendId, email: s.email, resend_email_id: null })),
+      )
+
+      let enqueued: { enqueued: number; earliest?: string; latest?: string }
+      if (useSto) {
+        // STO ab geplantem Zeitpunkt: Empfänger mit Profil bekommen Mail zur
+        // persönlichen Lieblingszeit nach scheduledForDate. Ohne Profil: genau scheduledIso.
+        enqueued = await enqueueScheduledSends(SITE_ID, sendId, subscribers, scheduledForDate)
+      } else {
+        enqueued = await enqueueUniformSchedule(SITE_ID, sendId, subscribers, scheduledIso)
+      }
+
+      // Innerhalb des 1h-Push-Horizons: direkt an Resend übergeben statt auf Cron warten.
+      const pushResult = await pushDueSendsToResend()
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: useSto ? 'scheduled+sto' : 'scheduled',
+        sendId,
+        scheduledFor: scheduledIso,
+        enqueued: enqueued.enqueued,
+        earliest: enqueued.earliest,
+        latest: enqueued.latest,
+        pushed_now: pushResult.pushed,
+      }), { status: 200, headers })
+    }
+
     const sendId = await recordNewsletterSend(SITE_ID, {
       post_slug: firstSlug,
       post_title: firstPost?.title ?? subject,
@@ -262,6 +348,15 @@ function collectSlugs(blocks: NewsletterBlock[]): Set<string> {
     if (block.type === 'link-list') block.slugs.forEach((s) => slugs.add(s))
   }
   return slugs
+}
+
+function parseScheduledFor(raw: unknown): Date | null {
+  if (!raw || typeof raw !== 'string') return null
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return null
+  // Mindestens 1 Minute in der Zukunft, sonst direkt versenden.
+  if (date.getTime() <= Date.now() + 60_000) return null
+  return date
 }
 
 function parseAudienceFilter(raw: unknown): { tags: string[]; minSignal: number } | null {

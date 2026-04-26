@@ -35,6 +35,43 @@ export default function HistoryTab({
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryConfirm, setRetryConfirm] = useState(false)
+  const [cancelConfirmId, setCancelConfirmId] = useState<number | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+
+  const scheduledSends = sends.filter((s) => s.status === 'scheduled')
+  const visibleSends = sends.filter((s) => s.status !== 'scheduled')
+
+  async function handleCancelScheduled(send: NewsletterSend) {
+    setCancelling(true)
+    try {
+      const res = await fetch('/api/admin/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel-scheduled', sendId: send.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Abbrechen fehlgeschlagen.')
+      const totalCancelled = (data.cancelled_pending ?? 0) + (data.cancelled_pushed ?? 0)
+      const failed = data.failed_pushed ?? 0
+      let msg = `Geplanter Versand abgebrochen (${totalCancelled} Empfänger gestoppt).`
+      if (data.cancelled_pushed > 0) {
+        msg += ` Davon ${data.cancelled_pushed} bei Resend storniert.`
+      }
+      if (failed > 0) {
+        msg += ` ⚠ ${failed} Mails konnten nicht mehr storniert werden – sind möglicherweise schon raus.`
+      }
+      setToast({
+        type: failed > 0 ? 'info' : 'success',
+        message: msg,
+      })
+      setCancelConfirmId(null)
+      await loadData()
+    } catch (err: unknown) {
+      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Unbekannter Fehler' })
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   async function loadSendDetail(send: NewsletterSend) {
     setSelectedSend(send)
@@ -222,26 +259,87 @@ export default function HistoryTab({
           )}
         </div>
       ) : (
-        /* Send List */
+        <>
+        {/* Geplante Sends */}
+        {scheduledSends.length > 0 && (
+          <div className="glass-card overflow-hidden rounded-xl">
+            <div className="border-b border-[var(--border)] bg-[var(--bg-secondary)]/50 px-5 py-3 flex items-center gap-2">
+              <svg className="h-4 w-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <h4 className="font-medium text-[var(--text)]">Geplant ({scheduledSends.length})</h4>
+            </div>
+            <div className="divide-y divide-[var(--border)]">
+              {scheduledSends.map((s) => {
+                const when = s.scheduled_for
+                  ? new Date(s.scheduled_for).toLocaleString('de-CH', { dateStyle: 'medium', timeStyle: 'short' })
+                  : '—'
+                const isConfirming = cancelConfirmId === s.id
+                return (
+                  <div key={s.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-[var(--text)]">{s.subject}</div>
+                      <div className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                        {when} · {s.recipient_count} Empfänger
+                      </div>
+                    </div>
+                    {isConfirming ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setCancelConfirmId(null)}
+                          disabled={cancelling}
+                          className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+                        >
+                          Doch nicht
+                        </button>
+                        <button
+                          onClick={() => handleCancelScheduled(s)}
+                          disabled={cancelling}
+                          className="rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+                        >
+                          {cancelling ? 'Wird abgebrochen…' : 'Versand abbrechen'}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setCancelConfirmId(s.id)}
+                        className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400"
+                      >
+                        Abbrechen
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Send List */}
         <div className="glass-card overflow-hidden rounded-xl">
-          {sends.length === 0 ? (
+          {visibleSends.length === 0 ? (
             <div className="px-6 py-12 text-center text-[var(--text-secondary)]">Noch keine Newsletter versendet.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead><tr className="border-b border-[var(--border)]"><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Betreff</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Empfänger</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Zugestellt</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Geklickt</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Bounced</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Datum</th></tr></thead>
                 <tbody>
-                  {sends.map((s) => {
+                  {visibleSends.map((s) => {
                     const hasTracking = (s.delivered_count ?? 0) > 0 || (s.bounced_count ?? 0) > 0
                     const clickRate = hasTracking && s.recipient_count > 0 ? Math.round(((s.clicked_count ?? 0) / s.recipient_count) * 100) : null
+                    const isCancelled = s.status === 'cancelled'
                     return (
-                      <tr key={s.id} onClick={() => loadSendDetail(s)} className="cursor-pointer border-b border-[var(--border)] last:border-0 transition-colors hover:bg-[var(--bg-secondary)]">
-                        <td className="px-5 py-3 text-[var(--text)]"><div className="font-medium">{s.subject}</div><div className="text-xs text-[var(--text-secondary)]">{s.post_title}</div></td>
+                      <tr key={s.id} onClick={() => loadSendDetail(s)} className={`cursor-pointer border-b border-[var(--border)] last:border-0 transition-colors hover:bg-[var(--bg-secondary)] ${isCancelled ? 'opacity-60' : ''}`}>
+                        <td className="px-5 py-3 text-[var(--text)]">
+                          <div className="font-medium">{s.subject}</div>
+                          <div className="text-xs text-[var(--text-secondary)]">
+                            {s.post_title}
+                            {isCancelled && <span className="ml-2 inline-block rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium uppercase text-[var(--text-muted)]">Abgebrochen</span>}
+                          </div>
+                        </td>
                         <td className="px-5 py-3 text-[var(--text)]">{s.recipient_count}</td>
                         <td className="px-5 py-3 text-[var(--text)]">{hasTracking ? (s.delivered_count ?? 0) : '—'}</td>
                         <td className="px-5 py-3 text-[var(--text)]">{hasTracking ? <span>{s.clicked_count ?? 0}{clickRate !== null ? ` (${clickRate}%)` : ''}</span> : '—'}</td>
                         <td className="px-5 py-3 text-[var(--text)]">{hasTracking ? (s.bounced_count ?? 0) : '—'}</td>
-                        <td className="px-5 py-3 text-[var(--text-secondary)]">{formatDate(s.sent_at)}</td>
+                        <td className="px-5 py-3 text-[var(--text-secondary)]">{formatDate(s.scheduled_for ?? s.sent_at)}</td>
                       </tr>
                     )
                   })}
@@ -250,6 +348,7 @@ export default function HistoryTab({
             </div>
           )}
         </div>
+        </>
       )}
     </div>
   )

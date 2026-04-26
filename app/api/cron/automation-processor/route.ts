@@ -1,6 +1,6 @@
 import { processGraphRuns } from '@/lib/graph-processor'
 import { runInactivityTriggers, runEngagementTriggers } from '@/lib/graph-automation'
-import { pushDueSendsToResend } from '@/lib/scheduled-sends'
+import { pushDueSendsToResend, flushDoneScheduledSends } from '@/lib/scheduled-sends'
 import { recomputeAllEngagement } from '@/lib/engagement'
 import { getAllSites } from '@/lib/site-config'
 
@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     const engagementTriggers = await runEngagementTriggers()
     const results = await processGraphRuns()
     const scheduled = await pushDueSendsToResend()
+    const flushed = await flushDoneScheduledSends()
 
     // Engagement-Score nur 1x täglich (zwischen 03:00-03:59 UTC) recomputen — sonst zu teuer
     const utcHour = new Date().getUTCHours()
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
       processed: results.length,
       results,
       scheduled,
+      flushed_scheduled: flushed.flushed,
       engagement_updated: engagementUpdated,
     })
   } catch (err: unknown) {

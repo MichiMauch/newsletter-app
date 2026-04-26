@@ -68,14 +68,16 @@ export const newsletterSends = sqliteTable('newsletter_sends', {
   subject: text('subject').notNull(),
   blocksJson: text('blocks_json'),
   sentAt: text('sent_at').notNull().default(sql`(datetime('now'))`),
+  scheduledFor: text('scheduled_for'),
   recipientCount: integer('recipient_count').notNull().default(0),
-  status: text('status').notNull().default('sent'),
+  status: text('status').notNull().default('sent').$type<'sent' | 'scheduled' | 'cancelled'>(),
   deliveredCount: integer('delivered_count').notNull().default(0),
   clickedCount: integer('clicked_count').notNull().default(0),
   bouncedCount: integer('bounced_count').notNull().default(0),
   complainedCount: integer('complained_count').notNull().default(0),
 }, (table) => [
   index('idx_sends_site').on(table.siteId),
+  index('idx_sends_scheduled').on(table.status, table.scheduledFor),
 ])
 
 // ─── Newsletter Recipients ──────────────────────────────────────────────
@@ -344,6 +346,14 @@ export const subscriberEngagement = sqliteTable('subscriber_engagement', {
   index('idx_se_score').on(table.siteId, table.score),
 ])
 
+// ─── Admin Settings (Key/Value für Prompts, Feature-Flags etc.) ────────
+
+export const adminSettings = sqliteTable('admin_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull().default(''),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
 // ─── Subscriber Tags (für Tag-Node + Condition) ────────────────────────
 
 export const subscriberTags = sqliteTable('subscriber_tags', {
@@ -356,4 +366,28 @@ export const subscriberTags = sqliteTable('subscriber_tags', {
   uniqueIndex('idx_st_unique').on(table.siteId, table.subscriberEmail, table.tag),
   index('idx_st_email').on(table.siteId, table.subscriberEmail),
   index('idx_st_tag').on(table.siteId, table.tag),
+])
+
+// ─── Subscriber Lists (manuelle Empfänger-Listen, beliebige E-Mails) ───
+
+export const subscriberLists = sqliteTable('subscriber_lists', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  siteId: text('site_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_sl_site').on(table.siteId),
+])
+
+export const subscriberListMembers = sqliteTable('subscriber_list_members', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  listId: integer('list_id').notNull().references(() => subscriberLists.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  token: text('token').notNull(),
+  addedAt: text('added_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('idx_slm_list_email').on(table.listId, table.email),
+  uniqueIndex('idx_slm_token').on(table.token),
+  index('idx_slm_list').on(table.listId),
 ])

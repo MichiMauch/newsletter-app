@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { DEFAULT_SUBJECT_PROMPT, DEFAULT_INTRO_PROMPT } from '@/lib/ai-prompts'
 import type { ToastState } from './types'
 
 interface SettingsTabProps {
@@ -8,10 +9,10 @@ interface SettingsTabProps {
 }
 
 export default function SettingsTab({ setToast }: SettingsTabProps) {
-  const [generatorPrompt, setGeneratorPrompt] = useState('')
-  const [reviewerPrompt, setReviewerPrompt] = useState('')
-  const [promptsLoaded, setPromptsLoaded] = useState(false)
-  const [savingPrompt, setSavingPrompt] = useState(false)
+  const [subjectPrompt, setSubjectPrompt] = useState('')
+  const [introPrompt, setIntroPrompt] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadPrompts()
@@ -19,38 +20,38 @@ export default function SettingsTab({ setToast }: SettingsTabProps) {
 
   async function loadPrompts() {
     try {
-      const [genRes, revRes] = await Promise.all([
-        fetch('/api/admin/settings?key=subject_prompt_generator'),
-        fetch('/api/admin/settings?key=subject_prompt_reviewer'),
+      const [subjRes, introRes] = await Promise.all([
+        fetch('/api/admin/settings?key=subject_prompt'),
+        fetch('/api/admin/settings?key=intro_prompt'),
       ])
-      if (genRes.ok) {
-        const data = await genRes.json()
-        setGeneratorPrompt(data.value || '')
+      if (subjRes.ok) {
+        const data = await subjRes.json()
+        setSubjectPrompt(data.value || '')
       }
-      if (revRes.ok) {
-        const data = await revRes.json()
-        setReviewerPrompt(data.value || '')
+      if (introRes.ok) {
+        const data = await introRes.json()
+        setIntroPrompt(data.value || '')
       }
     } catch { /* ignore */ }
-    setPromptsLoaded(true)
+    setLoaded(true)
   }
 
   async function savePrompts() {
-    setSavingPrompt(true)
+    setSaving(true)
     try {
-      const [genRes, revRes] = await Promise.all([
+      const [subjRes, introRes] = await Promise.all([
         fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'subject_prompt_generator', value: generatorPrompt }),
+          body: JSON.stringify({ key: 'subject_prompt', value: subjectPrompt }),
         }),
         fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'subject_prompt_reviewer', value: reviewerPrompt }),
+          body: JSON.stringify({ key: 'intro_prompt', value: introPrompt }),
         }),
       ])
-      if (genRes.ok && revRes.ok) {
+      if (subjRes.ok && introRes.ok) {
         setToast({ type: 'success', message: 'Prompts gespeichert.' })
       } else {
         setToast({ type: 'error', message: 'Fehler beim Speichern der Prompts.' })
@@ -58,38 +59,46 @@ export default function SettingsTab({ setToast }: SettingsTabProps) {
     } catch {
       setToast({ type: 'error', message: 'Verbindung fehlgeschlagen.' })
     }
-    setSavingPrompt(false)
+    setSaving(false)
   }
 
   async function resetPrompts() {
-    setGeneratorPrompt('')
-    setReviewerPrompt('')
-    setSavingPrompt(true)
+    setSubjectPrompt('')
+    setIntroPrompt('')
+    setSaving(true)
     try {
-      const [genRes, revRes] = await Promise.all([
+      const [subjRes, introRes] = await Promise.all([
         fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'subject_prompt_generator', value: '' }),
+          body: JSON.stringify({ key: 'subject_prompt', value: '' }),
         }),
         fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'subject_prompt_reviewer', value: '' }),
+          body: JSON.stringify({ key: 'intro_prompt', value: '' }),
         }),
       ])
-      if (genRes.ok && revRes.ok) {
-        setToast({ type: 'success', message: 'Prompts zurückgesetzt.' })
+      if (subjRes.ok && introRes.ok) {
+        setToast({ type: 'success', message: 'Auf Standard zurückgesetzt.' })
       } else {
         setToast({ type: 'error', message: 'Fehler beim Zurücksetzen.' })
       }
     } catch {
       setToast({ type: 'error', message: 'Verbindung fehlgeschlagen.' })
     }
-    setSavingPrompt(false)
+    setSaving(false)
   }
 
-  if (!promptsLoaded) {
+  function loadDefaultSubject() {
+    setSubjectPrompt(DEFAULT_SUBJECT_PROMPT)
+  }
+
+  function loadDefaultIntro() {
+    setIntroPrompt(DEFAULT_INTRO_PROMPT)
+  }
+
+  if (!loaded) {
     return (
       <div className="glass-card rounded-xl p-6">
         <div className="py-6 text-center text-[var(--text-secondary)]">Laden…</div>
@@ -99,61 +108,83 @@ export default function SettingsTab({ setToast }: SettingsTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Generator Prompt */}
-      <div className="glass-card space-y-4 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-[var(--text)]">Schritt 1: Generator-Prompt</h3>
+      <div className="glass-card space-y-3 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-[var(--text)]">AI-Prompts</h2>
         <p className="text-sm text-[var(--text-secondary)]">
-          Generiert 10 Betreffzeilen-Vorschläge und markiert die besten 3.
-          Leer lassen für den Standard-Prompt.
-        </p>
-        <textarea
-          value={generatorPrompt}
-          onChange={(e) => setGeneratorPrompt(e.target.value)}
-          placeholder={`Du bist ein Newsletter-Betreff-Generator für "KOKOMO" — einen Tiny House Blog aus der Schweiz.\nDie Bewohner sind Sibylle und Michi, die seit September 2022 in ihrem Tiny House leben.\n\nDeine Aufgabe: Generiere genau 10 Newsletter-Betreffzeilen basierend auf den Inhalten.\nMarkiere die besten 3 als Top-Vorschläge.\n\nRegeln:\n- Maximal 60 Zeichen pro Betreffzeile\n- Persoenlich und authentisch, kein Clickbait\n- Macht neugierig und animiert zum Oeffnen\n- Verwende "ss" statt "ß"\n- Deutsch (Schweizer Stil)`}
-          rows={10}
-          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 "
-        />
-        <p className="text-xs text-[var(--text-secondary)] opacity-75">
-          <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5">{'{{content}}'}</code> wird durch den Newsletter-Inhalt ersetzt (optional — der Inhalt wird auch als separate Nachricht gesendet).
-          Das JSON-Antwortformat wird automatisch angehängt.
+          Diese Prompts werden vom AI-Assistenten beim Erstellen eines Newsletters verwendet.
+          Leer lassen, um den Standard-Prompt zu nutzen. Der Platzhalter{' '}
+          <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5">{'{{articles}}'}</code>{' '}
+          wird durch die Liste der Artikel im Newsletter ersetzt (wenn nicht enthalten, wird sie automatisch angehängt).
         </p>
       </div>
 
-      {/* Reviewer Prompt */}
+      {/* Subject Prompt */}
       <div className="glass-card space-y-4 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-[var(--text)]">Schritt 2: Reviewer-Prompt</h3>
-        <p className="text-sm text-[var(--text-secondary)]">
-          Wählt die beste Betreffzeile aus oder formuliert eine bessere.
-          Leer lassen für den Standard-Prompt.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-[var(--text)]">Betreffzeilen-Prompt</h3>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Erzeugt 5 Betreffzeilen-Vorschläge im JSON-Format.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadDefaultSubject}
+            className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+          >
+            Standard laden
+          </button>
+        </div>
         <textarea
-          value={reviewerPrompt}
-          onChange={(e) => setReviewerPrompt(e.target.value)}
-          placeholder={`Du bist ein erfahrener Newsletter-Redakteur für "KOKOMO" — einen Tiny House Blog aus der Schweiz.\n\nDu erhältst 10 Betreffzeilen-Vorschläge, davon 3 als Top-Vorschläge markiert.\nWähle die beste Betreffzeile aus oder formuliere eine noch bessere basierend auf den Vorschlägen.\n\nKriterien:\n- Maximal 60 Zeichen\n- Hohe Oeffnungsrate\n- Authentisch, nicht reisserisch\n- Verwende "ss" statt "ß"`}
-          rows={10}
-          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 "
+          value={subjectPrompt}
+          onChange={(e) => setSubjectPrompt(e.target.value)}
+          placeholder={DEFAULT_SUBJECT_PROMPT}
+          rows={18}
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 font-mono text-xs text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
         />
-        <p className="text-xs text-[var(--text-secondary)] opacity-75">
-          Erhält die Generator-Vorschläge als Eingabe.
-          Das JSON-Antwortformat wird automatisch angehängt.
-        </p>
+      </div>
+
+      {/* Intro Prompt */}
+      <div className="glass-card space-y-4 rounded-xl p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-[var(--text)]">Einleitungstext-Prompt</h3>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Erzeugt einen kurzen Einleitungstext (2–3 Sätze) für den Newsletter.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadDefaultIntro}
+            className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+          >
+            Standard laden
+          </button>
+        </div>
+        <textarea
+          value={introPrompt}
+          onChange={(e) => setIntroPrompt(e.target.value)}
+          placeholder={DEFAULT_INTRO_PROMPT}
+          rows={18}
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 font-mono text-xs text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+        />
       </div>
 
       {/* Save / Reset Buttons */}
       <div className="flex items-center gap-3">
         <button
           onClick={savePrompts}
-          disabled={savingPrompt}
+          disabled={saving}
           className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
         >
-          {savingPrompt ? 'Speichern…' : 'Beide Prompts speichern'}
+          {saving ? 'Speichern…' : 'Prompts speichern'}
         </button>
         <button
           onClick={resetPrompts}
-          disabled={savingPrompt}
+          disabled={saving}
           className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
         >
-          Zurücksetzen
+          Auf Standard zurücksetzen
         </button>
       </div>
     </div>

@@ -50,6 +50,27 @@
       "when": 1777132194186,
       "tag": "0006_slow_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1777800000000,
+      "tag": "0007_scheduled_sends_column",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1777900000000,
+      "tag": "0008_admin_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778000000000,
+      "tag": "0009_subscriber_lists",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getSubscriberByToken, unsubscribeByToken } from '@/lib/newsletter'
 import { cancelEnrollments } from '@/lib/automation'
+import { removeMemberByToken } from '@/lib/lists'
 
 export default async function UnsubscribePage({
   searchParams,
@@ -13,17 +14,23 @@ export default async function UnsubscribePage({
     return <ErrorMessage />
   }
 
+  // 1) Subscriber-Token (newsletter_subscribers)
   const subscriber = await getSubscriberByToken(token)
   if (subscriber) {
     await cancelEnrollments(subscriber.email)
+    const unsubscribed = await unsubscribeByToken(token)
+    if (unsubscribed) {
+      redirect('/newsletter/abgemeldet')
+    }
   }
 
-  const unsubscribed = await unsubscribeByToken(token)
-  if (!unsubscribed) {
-    return <ErrorMessage />
+  // 2) Listen-Member-Token (subscriber_list_members) — manuelle Listen
+  const listResult = await removeMemberByToken(token)
+  if (listResult.removed) {
+    redirect('/newsletter/abgemeldet')
   }
 
-  redirect('/newsletter/abgemeldet')
+  return <ErrorMessage />
 }
 
 function ErrorMessage() {
