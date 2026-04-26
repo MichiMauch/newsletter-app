@@ -13,6 +13,7 @@ import EmailTemplatesTab from './admin/EmailTemplatesTab'
 import LoginForm from './admin/LoginForm'
 import { useToast } from './ui/ToastProvider'
 import StatusPill from './ui/StatusPill'
+import AiCopilot from './ui/AiCopilot'
 import EngagementTrendChart from './admin/charts/EngagementTrendChart'
 import SubscriberGrowthChart from './admin/charts/SubscriberGrowthChart'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
@@ -2479,6 +2480,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
         <PreviewModal
           html={buildMultiBlockNewsletterHtml(PREVIEW_SITE_CONFIG, blocks, postsMap, '#')}
           onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {/* AI Co-Pilot — context-aware floating panel */}
+      {!automationFullscreen && !studioMode && (
+        <AiCopilot
+          context={
+            tab === 'dashboard' ? 'dashboard'
+              : tab === 'subscribers' ? 'subscribers'
+                : tab === 'send' && sendSubTab === 'compose' ? 'compose'
+                  : 'other'
+          }
         />
       )}
 

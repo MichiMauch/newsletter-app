@@ -44,14 +44,6 @@ interface SubscriberDrawerProps {
   setConfirmAction: (action: ConfirmActionState) => void
 }
 
-const sendStatusLabels: Record<ProfilePayload['sends'][number]['status'], { label: string; cls: string }> = {
-  sent: { label: 'Gesendet', cls: 'text-[var(--text-muted)]' },
-  delivered: { label: 'Zugestellt', cls: 'text-blue-600 dark:text-blue-400' },
-  clicked: { label: 'Geklickt', cls: 'text-emerald-600 dark:text-emerald-400' },
-  bounced: { label: 'Bounced', cls: 'text-red-600 dark:text-red-400' },
-  complained: { label: 'Beschwerde', cls: 'text-orange-600 dark:text-orange-400' },
-}
-
 export default function SubscriberDrawer({ subscriber, onClose, onChanged, setConfirmAction }: SubscriberDrawerProps) {
   const toast = useToast()
   const [profile, setProfile] = useState<ProfilePayload | null>(null)
@@ -306,32 +298,7 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
                 )}
               </Section>
 
-              <Section title={`Newsletter-Historie (${profile.sends.length})`}>
-                {profile.sends.length === 0 ? (
-                  <p className="text-xs text-[var(--text-muted)]">Noch keinen Newsletter erhalten.</p>
-                ) : (
-                  <ul className="divide-y divide-[var(--border)]">
-                    {profile.sends.map((s) => {
-                      const meta = sendStatusLabels[s.status]
-                      return (
-                        <li key={s.id} className="py-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm text-[var(--text)]">{s.subject}</div>
-                              <div className="text-[10px] text-[var(--text-muted)] tabular-nums">
-                                {formatDate(s.sent_at)}
-                                {s.click_count > 0 && ` · ${s.click_count} Klick${s.click_count === 1 ? '' : 's'}`}
-                                {s.bounce_type && ` · ${s.bounce_type}`}
-                              </div>
-                            </div>
-                            <span className={`shrink-0 text-xs ${meta.cls}`}>{meta.label}</span>
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </Section>
+              <JourneyTimeline profile={profile} />
             </div>
           )}
         </div>
@@ -382,6 +349,130 @@ function Stat({ label, value }: { label: string; value: number }) {
     <div className="border border-[var(--border)] bg-[var(--background-card)] p-3 text-center">
       <div className="tabular-nums text-[var(--text)]" style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div>
       <div className="mt-1 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{label}</div>
+    </div>
+  )
+}
+
+// ─── Customer Journey Timeline ────────────────────────────────────────
+
+type JourneyEventType = 'signup' | 'confirm' | 'send' | 'unsubscribe'
+
+interface JourneyEvent {
+  type: JourneyEventType
+  at: string
+  title: string
+  detail?: string
+  send?: ProfilePayload['sends'][number]
+}
+
+const JOURNEY_TONES: Record<JourneyEventType, { bg: string; ring: string; icon: string }> = {
+  signup:      { bg: 'bg-[var(--bg-tertiary)]', ring: 'ring-[var(--border)]',           icon: '✎' },
+  confirm:     { bg: 'bg-emerald-500',          ring: 'ring-emerald-200 dark:ring-emerald-800', icon: '✓' },
+  send:        { bg: 'bg-[var(--text-muted)]',  ring: 'ring-[var(--border)]',           icon: '✉' },
+  unsubscribe: { bg: 'bg-red-500',              ring: 'ring-red-200 dark:ring-red-800', icon: '✕' },
+}
+
+const SEND_OUTCOME: Record<ProfilePayload['sends'][number]['status'], { label: string; cls: string; bg: string }> = {
+  sent:       { label: 'Gesendet',   cls: 'text-[var(--text-muted)]',            bg: 'bg-[var(--bg-tertiary)]' },
+  delivered:  { label: 'Zugestellt', cls: 'text-blue-700 dark:text-blue-300',    bg: 'bg-blue-500' },
+  clicked:    { label: 'Geklickt',   cls: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-500' },
+  bounced:    { label: 'Bounced',    cls: 'text-red-700 dark:text-red-300',      bg: 'bg-red-500' },
+  complained: { label: 'Beschwerde', cls: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-500' },
+}
+
+function buildJourney(profile: ProfilePayload): JourneyEvent[] {
+  const events: JourneyEvent[] = []
+
+  events.push({
+    type: 'signup',
+    at: profile.subscriber.createdAt,
+    title: 'Angemeldet',
+  })
+
+  if (profile.subscriber.confirmedAt) {
+    events.push({
+      type: 'confirm',
+      at: profile.subscriber.confirmedAt,
+      title: 'Bestätigt',
+    })
+  }
+
+  for (const s of profile.sends) {
+    events.push({
+      type: 'send',
+      at: s.sent_at,
+      title: s.subject,
+      send: s,
+    })
+  }
+
+  if (profile.subscriber.unsubscribedAt) {
+    events.push({
+      type: 'unsubscribe',
+      at: profile.subscriber.unsubscribedAt,
+      title: 'Abgemeldet',
+    })
+  }
+
+  return events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+}
+
+function JourneyTimeline({ profile }: { profile: ProfilePayload }) {
+  const events = buildJourney(profile)
+  return (
+    <Section title={`Verlauf (${events.length})`}>
+      {events.length === 0 ? (
+        <p className="text-xs text-[var(--text-muted)]">Noch keine Aktivität.</p>
+      ) : (
+        <ol className="relative ml-3 border-l border-[var(--border)] pl-4">
+          {events.map((event, idx) => (
+            <li key={`${event.type}-${event.at}-${idx}`} className="relative pb-3 last:pb-0">
+              <JourneyDot event={event} />
+              <JourneyContent event={event} />
+            </li>
+          ))}
+        </ol>
+      )}
+    </Section>
+  )
+}
+
+function JourneyDot({ event }: { event: JourneyEvent }) {
+  const tone = event.type === 'send' && event.send
+    ? { bg: SEND_OUTCOME[event.send.status].bg, ring: 'ring-[var(--border)]', icon: '·' }
+    : JOURNEY_TONES[event.type]
+  return (
+    <span
+      aria-hidden
+      className={`absolute -left-[22px] top-1 flex h-3 w-3 items-center justify-center text-[8px] text-white ring-2 ${tone.bg} ${tone.ring}`}
+      style={{ ringOffsetColor: 'var(--background)' } as React.CSSProperties}
+    >
+      {tone.icon}
+    </span>
+  )
+}
+
+function JourneyContent({ event }: { event: JourneyEvent }) {
+  if (event.type === 'send' && event.send) {
+    const outcome = SEND_OUTCOME[event.send.status]
+    return (
+      <div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{event.title}</span>
+          <span className={`shrink-0 text-[10px] font-medium ${outcome.cls}`}>{outcome.label}</span>
+        </div>
+        <div className="text-[10px] text-[var(--text-muted)] tabular-nums">
+          {formatDate(event.at)}
+          {event.send.click_count > 0 && ` · ${event.send.click_count} Klick${event.send.click_count === 1 ? '' : 's'}`}
+          {event.send.bounce_type && ` · ${event.send.bounce_type}`}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <div className="text-sm font-medium text-[var(--text)]">{event.title}</div>
+      <div className="text-[10px] text-[var(--text-muted)] tabular-nums">{formatDate(event.at)}</div>
     </div>
   )
 }
