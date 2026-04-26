@@ -5,6 +5,7 @@ import type { Subscriber, ConfirmActionState } from './types'
 import { formatDate, statusBadge } from './types'
 import { useToast } from '../ui/ToastProvider'
 import { EngagementBadge } from '../ui/EngagementIndicator'
+import SubscriberDrawer from './SubscriberDrawer'
 
 interface SubscribersTabProps {
   subscribers: Subscriber[]
@@ -20,6 +21,8 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   const [tagFilter, setTagFilter] = useState<string>('all')
+  const [drawerEmail, setDrawerEmail] = useState<string | null>(null)
+  const drawerSubscriber = drawerEmail ? subscribers.find((s) => s.email === drawerEmail) ?? null : null
 
   const allTags = useMemo(() => {
     const set = new Set<string>()
@@ -147,7 +150,8 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
                 return (
                   <tr
                     key={s.id}
-                    className={`border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--bg-secondary)] ${
+                    onClick={() => setDrawerEmail(s.email)}
+                    className={`cursor-pointer border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--bg-secondary)] ${
                       i % 2 === 0 ? '' : 'bg-[var(--bg-secondary)]/50'
                     }`}
                   >
@@ -176,7 +180,7 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
                     <td className="px-5 py-3 text-[var(--text-secondary)]">
                       {formatDate(s.createdAt)}
                     </td>
-                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                    <td className="px-5 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       {s.status !== 'unsubscribed' && (
                         <button
                           onClick={() => handleUnsubscribe(s.id, s.email)}
@@ -199,6 +203,15 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
           </table>
         )}
       </div>
+
+      {drawerSubscriber && (
+        <SubscriberDrawer
+          subscriber={drawerSubscriber}
+          onClose={() => setDrawerEmail(null)}
+          onChanged={loadData}
+          setConfirmAction={setConfirmAction}
+        />
+      )}
     </div>
   )
 }
