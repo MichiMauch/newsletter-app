@@ -244,15 +244,17 @@ export function SlotCard({ block, index, posts, allBlocks, onUpdate, onRemove, o
               onClick={async () => {
                 setGeneratingIntro(true)
                 try {
+                  const bySlug = new Map<string, Post>()
+                  for (const p of posts) bySlug.set(p.slug, p)
                   const postData: Array<{ title: string; summary: string }> = []
                   for (const b of allBlocks) {
                     if (b.type === 'hero' && b.slug) {
-                      const p = posts.find((x) => x.slug === b.slug)
+                      const p = bySlug.get(b.slug)
                       if (p) postData.push({ title: p.title, summary: p.summary })
                     }
                     if (b.type === 'link-list') {
                       for (const s of b.slugs) {
-                        const p = posts.find((x) => x.slug === s)
+                        const p = bySlug.get(s)
                         if (p) postData.push({ title: p.title, summary: p.summary })
                       }
                     }

@@ -15,27 +15,28 @@ export async function GET(request: Request) {
     const db = getDb()
     const nowIso = new Date().toISOString()
 
-    const [confirmedRow] = await db.select({ count: sql<number>`COUNT(*)` })
-      .from(newsletterSubscribers)
-      .where(and(
-        eq(newsletterSubscribers.siteId, SITE_ID),
-        eq(newsletterSubscribers.status, 'confirmed'),
-      ))
-
-    const upcoming = await db.select({
-      id: newsletterSends.id,
-      subject: newsletterSends.subject,
-      scheduledFor: newsletterSends.scheduledFor,
-      recipientCount: newsletterSends.recipientCount,
-    })
-      .from(newsletterSends)
-      .where(and(
-        eq(newsletterSends.siteId, SITE_ID),
-        eq(newsletterSends.status, 'scheduled'),
-        gt(newsletterSends.scheduledFor, nowIso),
-      ))
-      .orderBy(asc(newsletterSends.scheduledFor))
-      .limit(1)
+    const [[confirmedRow], upcoming] = await Promise.all([
+      db.select({ count: sql<number>`COUNT(*)` })
+        .from(newsletterSubscribers)
+        .where(and(
+          eq(newsletterSubscribers.siteId, SITE_ID),
+          eq(newsletterSubscribers.status, 'confirmed'),
+        )),
+      db.select({
+        id: newsletterSends.id,
+        subject: newsletterSends.subject,
+        scheduledFor: newsletterSends.scheduledFor,
+        recipientCount: newsletterSends.recipientCount,
+      })
+        .from(newsletterSends)
+        .where(and(
+          eq(newsletterSends.siteId, SITE_ID),
+          eq(newsletterSends.status, 'scheduled'),
+          gt(newsletterSends.scheduledFor, nowIso),
+        ))
+        .orderBy(asc(newsletterSends.scheduledFor))
+        .limit(1),
+    ])
 
     return new Response(
       JSON.stringify({

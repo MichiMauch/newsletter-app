@@ -29,43 +29,48 @@ export async function GET(request: Request) {
     const dayEnd = in24Hours()
     const nowIso = new Date().toISOString()
 
-    const [newSubsRow] = await db.select({ count: sql<number>`COUNT(*)` })
-      .from(newsletterSubscribers)
-      .where(and(
-        eq(newsletterSubscribers.siteId, SITE_ID),
-        gte(newsletterSubscribers.createdAt, dayStart),
-      ))
-
-    const [unsubsRow] = await db.select({ count: sql<number>`COUNT(*)` })
-      .from(newsletterSubscribers)
-      .where(and(
-        eq(newsletterSubscribers.siteId, SITE_ID),
-        isNotNull(newsletterSubscribers.unsubscribedAt),
-        gte(newsletterSubscribers.unsubscribedAt, dayStart),
-      ))
-
-    const [bouncesRow] = await db.select({ count: sql<number>`COUNT(*)` })
-      .from(newsletterRecipients)
-      .where(and(
-        isNotNull(newsletterRecipients.bouncedAt),
-        gte(newsletterRecipients.bouncedAt, dayStart),
-      ))
-
-    const upcomingSends = await db.select({
-      id: newsletterSends.id,
-      subject: newsletterSends.subject,
-      scheduledFor: newsletterSends.scheduledFor,
-      recipientCount: newsletterSends.recipientCount,
-    })
-      .from(newsletterSends)
-      .where(and(
-        eq(newsletterSends.siteId, SITE_ID),
-        eq(newsletterSends.status, 'scheduled'),
-        gt(newsletterSends.scheduledFor, nowIso),
-        lte(newsletterSends.scheduledFor, dayEnd),
-      ))
-      .orderBy(asc(newsletterSends.scheduledFor))
-      .limit(5)
+    // 4 unabhängige Queries parallel ausführen
+    const [
+      [newSubsRow],
+      [unsubsRow],
+      [bouncesRow],
+      upcomingSends,
+    ] = await Promise.all([
+      db.select({ count: sql<number>`COUNT(*)` })
+        .from(newsletterSubscribers)
+        .where(and(
+          eq(newsletterSubscribers.siteId, SITE_ID),
+          gte(newsletterSubscribers.createdAt, dayStart),
+        )),
+      db.select({ count: sql<number>`COUNT(*)` })
+        .from(newsletterSubscribers)
+        .where(and(
+          eq(newsletterSubscribers.siteId, SITE_ID),
+          isNotNull(newsletterSubscribers.unsubscribedAt),
+          gte(newsletterSubscribers.unsubscribedAt, dayStart),
+        )),
+      db.select({ count: sql<number>`COUNT(*)` })
+        .from(newsletterRecipients)
+        .where(and(
+          isNotNull(newsletterRecipients.bouncedAt),
+          gte(newsletterRecipients.bouncedAt, dayStart),
+        )),
+      db.select({
+        id: newsletterSends.id,
+        subject: newsletterSends.subject,
+        scheduledFor: newsletterSends.scheduledFor,
+        recipientCount: newsletterSends.recipientCount,
+      })
+        .from(newsletterSends)
+        .where(and(
+          eq(newsletterSends.siteId, SITE_ID),
+          eq(newsletterSends.status, 'scheduled'),
+          gt(newsletterSends.scheduledFor, nowIso),
+          lte(newsletterSends.scheduledFor, dayEnd),
+        ))
+        .orderBy(asc(newsletterSends.scheduledFor))
+        .limit(5),
+    ])
 
     return new Response(
       JSON.stringify({

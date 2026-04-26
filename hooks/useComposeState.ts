@@ -71,8 +71,9 @@ export function useComposeState({
   const [sending, setSending] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [confirmSend, setConfirmSend] = useState(false)
-  const [customTemplates, setCustomTemplates] = useState<NewsletterTemplate[]>([])
-  const [drafts, setDrafts] = useState<NewsletterDraft[]>([])
+  // Lazy initializer reads localStorage once on mount (skipped on server).
+  const [customTemplates, setCustomTemplates] = useState<NewsletterTemplate[]>(loadCustomTemplates)
+  const [drafts, setDrafts] = useState<NewsletterDraft[]>(loadDrafts)
 
   // ─── Test send ───
   const [showTestSend, setShowTestSend] = useState(false)
@@ -105,11 +106,6 @@ export function useComposeState({
   )
 
   // ─── Effects ───
-  useEffect(() => {
-    setCustomTemplates(loadCustomTemplates())
-    setDrafts(loadDrafts())
-  }, [])
-
   useEffect(() => {
     if (!(tab === 'send' && sendSubTab === 'compose')) return
     fetch('/api/admin/lists')
@@ -184,15 +180,18 @@ export function useComposeState({
     setSubjectOptions([])
     setShowSubjectPicker(true)
     try {
+      // Index posts by slug once — avoid O(blocks × posts) find loop.
+      const bySlug = new Map<string, Post>()
+      for (const p of posts) bySlug.set(p.slug, p)
       const postData: Array<{ title: string; summary: string }> = []
       for (const block of blocks) {
         if (block.type === 'hero' && block.slug) {
-          const p = posts.find((x) => x.slug === block.slug)
+          const p = bySlug.get(block.slug)
           if (p) postData.push({ title: p.title, summary: p.summary })
         }
         if (block.type === 'link-list') {
           for (const s of block.slugs) {
-            const p = posts.find((x) => x.slug === s)
+            const p = bySlug.get(s)
             if (p) postData.push({ title: p.title, summary: p.summary })
           }
         }

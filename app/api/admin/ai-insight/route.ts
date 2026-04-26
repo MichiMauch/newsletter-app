@@ -56,23 +56,25 @@ async function collectFacts(type: Insight): Promise<string> {
 
   if (type === 'dashboard-summary') {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const [confirmed] = await db.select({ c: sql<number>`COUNT(*)` })
-      .from(newsletterSubscribers)
-      .where(and(eq(newsletterSubscribers.siteId, SITE_ID), eq(newsletterSubscribers.status, 'confirmed')))
-    const [newSubs] = await db.select({ c: sql<number>`COUNT(*)` })
-      .from(newsletterSubscribers)
-      .where(and(eq(newsletterSubscribers.siteId, SITE_ID), gte(newsletterSubscribers.createdAt, since)))
-    const recentSends = await db.select({
-      subject: newsletterSends.subject,
-      sentAt: newsletterSends.sentAt,
-      recipientCount: newsletterSends.recipientCount,
-      clickedCount: newsletterSends.clickedCount,
-      bouncedCount: newsletterSends.bouncedCount,
-    })
-      .from(newsletterSends)
-      .where(and(eq(newsletterSends.siteId, SITE_ID), eq(newsletterSends.status, 'sent')))
-      .orderBy(desc(newsletterSends.sentAt))
-      .limit(5)
+    const [[confirmed], [newSubs], recentSends] = await Promise.all([
+      db.select({ c: sql<number>`COUNT(*)` })
+        .from(newsletterSubscribers)
+        .where(and(eq(newsletterSubscribers.siteId, SITE_ID), eq(newsletterSubscribers.status, 'confirmed'))),
+      db.select({ c: sql<number>`COUNT(*)` })
+        .from(newsletterSubscribers)
+        .where(and(eq(newsletterSubscribers.siteId, SITE_ID), gte(newsletterSubscribers.createdAt, since))),
+      db.select({
+        subject: newsletterSends.subject,
+        sentAt: newsletterSends.sentAt,
+        recipientCount: newsletterSends.recipientCount,
+        clickedCount: newsletterSends.clickedCount,
+        bouncedCount: newsletterSends.bouncedCount,
+      })
+        .from(newsletterSends)
+        .where(and(eq(newsletterSends.siteId, SITE_ID), eq(newsletterSends.status, 'sent')))
+        .orderBy(desc(newsletterSends.sentAt))
+        .limit(5),
+    ])
 
     const lines = [
       `Aktive Abos: ${confirmed?.c ?? 0}`,
@@ -88,20 +90,22 @@ async function collectFacts(type: Insight): Promise<string> {
   }
 
   if (type === 'subscriber-risk') {
-    const tiers = await db.select({
-      tier: subscriberEngagement.tier,
-      count: sql<number>`COUNT(*)`,
-    })
-      .from(subscriberEngagement)
-      .where(eq(subscriberEngagement.siteId, SITE_ID))
-      .groupBy(subscriberEngagement.tier)
+    const [tiers, [coldList], [dormant]] = await Promise.all([
+      db.select({
+        tier: subscriberEngagement.tier,
+        count: sql<number>`COUNT(*)`,
+      })
+        .from(subscriberEngagement)
+        .where(eq(subscriberEngagement.siteId, SITE_ID))
+        .groupBy(subscriberEngagement.tier),
+      db.select({ c: sql<number>`COUNT(*)` })
+        .from(subscriberEngagement)
+        .where(and(eq(subscriberEngagement.siteId, SITE_ID), eq(subscriberEngagement.tier, 'cold'))),
+      db.select({ c: sql<number>`COUNT(*)` })
+        .from(subscriberEngagement)
+        .where(and(eq(subscriberEngagement.siteId, SITE_ID), eq(subscriberEngagement.tier, 'dormant'))),
+    ])
     const rows = tiers.map((t) => `${t.tier}: ${t.count}`).join(' · ')
-    const [coldList] = await db.select({ c: sql<number>`COUNT(*)` })
-      .from(subscriberEngagement)
-      .where(and(eq(subscriberEngagement.siteId, SITE_ID), eq(subscriberEngagement.tier, 'cold')))
-    const [dormant] = await db.select({ c: sql<number>`COUNT(*)` })
-      .from(subscriberEngagement)
-      .where(and(eq(subscriberEngagement.siteId, SITE_ID), eq(subscriberEngagement.tier, 'dormant')))
     return `Analysiere das Engagement-Risiko der Liste in 2–3 Sätzen. Wer ist gefährdet, sich abzumelden? Schlage einen konkreten nächsten Schritt vor (z.B. Re-Engagement-Kampagne).\n\nVerteilung nach Tier: ${rows}\nKalt (lange keine Aktivität): ${coldList?.c ?? 0}\nSchlafend: ${dormant?.c ?? 0}`
   }
 

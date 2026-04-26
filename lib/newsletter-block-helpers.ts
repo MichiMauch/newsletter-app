@@ -60,9 +60,12 @@ export function buildPostsMap<T extends { slug: string }>(blocks: NewsletterBloc
     if (block.type === 'hero') slugs.add(block.slug)
     if (block.type === 'link-list') block.slugs.forEach((s) => slugs.add(s))
   }
+  // Index posts by slug once → O(slugs + posts) statt O(slugs × posts)
+  const bySlug = new Map<string, T>()
+  for (const p of posts) bySlug.set(p.slug, p)
   const map: Record<string, PostRef> = {}
   for (const slug of slugs) {
-    const post = posts.find((p) => p.slug === slug)
+    const post = bySlug.get(slug)
     if (post) map[slug] = post as unknown as PostRef
   }
   return map

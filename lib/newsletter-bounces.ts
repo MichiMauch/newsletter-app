@@ -62,16 +62,60 @@ const allBouncesCte = (siteId: string) => sql`
 export async function getBounceOverview(siteId: string, limit = 200): Promise<BounceOverview> {
   const db = getDb()
 
-  // Aggregat nach (bounce_type, bounce_sub_type)
-  const breakdownRes = await db.run(sql`
-    ${allBouncesCte(siteId)}
-    SELECT bounce_type, bounce_sub_type,
-      COUNT(*) AS count,
-      COUNT(DISTINCT email) AS unique_emails
-    FROM all_bounces
-    GROUP BY bounce_type, bounce_sub_type
-    ORDER BY count DESC
-  `)
+  // Drei unabhängige Aggregate auf demselben CTE — parallel ausführen.
+  const [breakdownRes, addrRes, totalsRes] = await Promise.all([
+    // Aggregat nach (bounce_type, bounce_sub_type)
+    db.run(sql`
+      ${allBouncesCte(siteId)}
+      SELECT bounce_type, bounce_sub_type,
+        COUNT(*) AS count,
+        COUNT(DISTINCT email) AS unique_emails
+      FROM all_bounces
+      GROUP BY bounce_type, bounce_sub_type
+      ORDER BY count DESC
+    `),
+    // Adressliste: letzter Bounce + Counts pro Quelle
+    db.run(sql`
+      ${allBouncesCte(siteId)},
+      ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY email ORDER BY bounced_at DESC) AS rn
+        FROM all_bounces
+      ),
+      counts AS (
+        SELECT email,
+          COUNT(*) AS bounce_count,
+          MAX(bounced_at) AS last_bounced_at,
+          SUM(CASE WHEN source = 'newsletter' THEN 1 ELSE 0 END) AS newsletter_bounces,
+          SUM(CASE WHEN source = 'automation' THEN 1 ELSE 0 END) AS automation_bounces
+        FROM all_bounces
+        GROUP BY email
+      )
+      SELECT c.email,
+        c.bounce_count,
+        c.last_bounced_at,
+        c.newsletter_bounces,
+        c.automation_bounces,
+        r.bounce_type AS last_bounce_type,
+        r.bounce_sub_type AS last_bounce_sub_type,
+        r.bounce_message AS last_bounce_message,
+        r.source AS last_source,
+        (SELECT s.status FROM newsletter_subscribers s
+          WHERE s.site_id = ${siteId} AND s.email = c.email LIMIT 1) AS subscriber_status
+      FROM counts c
+      JOIN ranked r ON r.email = c.email AND r.rn = 1
+      ORDER BY c.last_bounced_at DESC
+      LIMIT ${limit}
+    `),
+    db.run(sql`
+      ${allBouncesCte(siteId)}
+      SELECT
+        COUNT(DISTINCT email) AS unique_emails,
+        SUM(CASE WHEN source = 'newsletter' THEN 1 ELSE 0 END) AS newsletter_bounces,
+        SUM(CASE WHEN source = 'automation' THEN 1 ELSE 0 END) AS automation_bounces
+      FROM all_bounces
+    `),
+  ])
+
   const by_subtype: BounceBreakdownRow[] = (breakdownRes.rows ?? []).map((r) => ({
     bounce_type: (r.bounce_type as string | null) ?? null,
     bounce_sub_type: (r.bounce_sub_type as string | null) ?? null,
@@ -79,38 +123,6 @@ export async function getBounceOverview(siteId: string, limit = 200): Promise<Bo
     unique_emails: (r.unique_emails as number) || 0,
   }))
 
-  // Adressliste: letzter Bounce + Counts pro Quelle
-  const addrRes = await db.run(sql`
-    ${allBouncesCte(siteId)},
-    ranked AS (
-      SELECT *, ROW_NUMBER() OVER (PARTITION BY email ORDER BY bounced_at DESC) AS rn
-      FROM all_bounces
-    ),
-    counts AS (
-      SELECT email,
-        COUNT(*) AS bounce_count,
-        MAX(bounced_at) AS last_bounced_at,
-        SUM(CASE WHEN source = 'newsletter' THEN 1 ELSE 0 END) AS newsletter_bounces,
-        SUM(CASE WHEN source = 'automation' THEN 1 ELSE 0 END) AS automation_bounces
-      FROM all_bounces
-      GROUP BY email
-    )
-    SELECT c.email,
-      c.bounce_count,
-      c.last_bounced_at,
-      c.newsletter_bounces,
-      c.automation_bounces,
-      r.bounce_type AS last_bounce_type,
-      r.bounce_sub_type AS last_bounce_sub_type,
-      r.bounce_message AS last_bounce_message,
-      r.source AS last_source,
-      (SELECT s.status FROM newsletter_subscribers s
-        WHERE s.site_id = ${siteId} AND s.email = c.email LIMIT 1) AS subscriber_status
-    FROM counts c
-    JOIN ranked r ON r.email = c.email AND r.rn = 1
-    ORDER BY c.last_bounced_at DESC
-    LIMIT ${limit}
-  `)
   const addresses: BouncedAddressRow[] = (addrRes.rows ?? []).map((r) => ({
     email: r.email as string,
     bounce_count: (r.bounce_count as number) || 0,
@@ -123,15 +135,6 @@ export async function getBounceOverview(siteId: string, limit = 200): Promise<Bo
     automation_bounces: (r.automation_bounces as number) || 0,
     subscriber_status: (r.subscriber_status as 'pending' | 'confirmed' | 'unsubscribed' | null) ?? null,
   }))
-
-  const totalsRes = await db.run(sql`
-    ${allBouncesCte(siteId)}
-    SELECT
-      COUNT(DISTINCT email) AS unique_emails,
-      SUM(CASE WHEN source = 'newsletter' THEN 1 ELSE 0 END) AS newsletter_bounces,
-      SUM(CASE WHEN source = 'automation' THEN 1 ELSE 0 END) AS automation_bounces
-    FROM all_bounces
-  `)
   const totalsRow = totalsRes.rows?.[0] ?? {}
   const total_bounces = by_subtype.reduce((sum, b) => sum + b.count, 0)
   const unique_addresses = (totalsRow.unique_emails as number) || 0

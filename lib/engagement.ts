@@ -60,31 +60,33 @@ export async function computeEngagementScore(siteId: string, email: string): Pro
   const sinceIso = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
 
   // Sends + Opens + Clicks aus newsletter_recipients in den letzten 90 Tagen
-  const stats = await db.run(sql`
-    SELECT
-      COUNT(*) as sends,
-      SUM(CASE WHEN nr.clicked_at IS NOT NULL OR nr.click_count > 0 THEN 1 ELSE 0 END) as clicks,
-      MAX(nr.clicked_at) as last_click_at
-    FROM newsletter_recipients nr
-    JOIN newsletter_sends ns ON ns.id = nr.send_id
-    WHERE ns.site_id = ${siteId}
-      AND nr.email = ${email}
-      AND ns.sent_at >= ${sinceIso}
-  `)
+  // (parallel mit Opens aus subscriber_open_signals — beide Queries unabhängig)
+  const [stats, opens] = await Promise.all([
+    db.run(sql`
+      SELECT
+        COUNT(*) as sends,
+        SUM(CASE WHEN nr.clicked_at IS NOT NULL OR nr.click_count > 0 THEN 1 ELSE 0 END) as clicks,
+        MAX(nr.clicked_at) as last_click_at
+      FROM newsletter_recipients nr
+      JOIN newsletter_sends ns ON ns.id = nr.send_id
+      WHERE ns.site_id = ${siteId}
+        AND nr.email = ${email}
+        AND ns.sent_at >= ${sinceIso}
+    `),
+    db.run(sql`
+      SELECT COUNT(*) as opens, MAX(opened_at_utc) as last_open_at
+      FROM subscriber_open_signals
+      WHERE site_id = ${siteId}
+        AND subscriber_email = ${email}
+        AND is_bot_open = 0
+        AND opened_at_utc >= ${sinceIso}
+    `),
+  ])
   const row = stats.rows?.[0] ?? {}
   const sends90d = (row.sends as number) || 0
   const clicks90d = (row.clicks as number) || 0
   const lastClickAt = (row.last_click_at as string | null) ?? null
 
-  // Opens kommen aus subscriber_open_signals (Bot-Filter berücksichtigt)
-  const opens = await db.run(sql`
-    SELECT COUNT(*) as opens, MAX(opened_at_utc) as last_open_at
-    FROM subscriber_open_signals
-    WHERE site_id = ${siteId}
-      AND subscriber_email = ${email}
-      AND is_bot_open = 0
-      AND opened_at_utc >= ${sinceIso}
-  `)
   const openRow = opens.rows?.[0] ?? {}
   const opens90d = (openRow.opens as number) || 0
   const lastOpenAt = (openRow.last_open_at as string | null) ?? null
