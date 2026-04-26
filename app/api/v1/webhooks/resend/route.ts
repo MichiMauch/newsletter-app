@@ -10,7 +10,7 @@ interface ResendWebhookPayload {
   created_at: string
   data: {
     email_id: string
-    bounce?: { bounce_type?: string }
+    bounce?: { bounce_type?: string; sub_type?: string; message?: string }
     click?: { link?: string }
   }
 }
@@ -68,7 +68,11 @@ export async function POST(request: Request) {
         await updateRecipientEvent(emailId, 'clicked', created_at, { click_url: data.click?.link })
         break
       case 'email.bounced':
-        await updateRecipientEvent(emailId, 'bounced', created_at, { bounce_type: data.bounce?.bounce_type })
+        await updateRecipientEvent(emailId, 'bounced', created_at, {
+          bounce_type: data.bounce?.bounce_type,
+          bounce_sub_type: data.bounce?.sub_type,
+          bounce_message: data.bounce?.message,
+        })
         break
       case 'email.complained':
         await updateRecipientEvent(emailId, 'complained', created_at)
@@ -79,6 +83,8 @@ export async function POST(request: Request) {
     if (['delivered', 'clicked', 'bounced', 'complained'].includes(automationEvent)) {
       await updateAutomationSendEvent(emailId, automationEvent, created_at, {
         bounce_type: data.bounce?.bounce_type,
+        bounce_sub_type: data.bounce?.sub_type,
+        bounce_message: data.bounce?.message,
       })
     }
 

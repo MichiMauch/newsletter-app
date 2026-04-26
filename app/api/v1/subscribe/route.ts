@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     const site = await getSiteConfig(siteId)
 
     if (result.alreadyConfirmed) {
-      sendAlreadySubscribedEmail(site, { email: normalized }).catch((err) =>
+      sendAlreadySubscribedEmail(site, { email: normalized, token: result.token }).catch((err) =>
         console.error('[newsletter] already-subscribed email failed:', err),
       )
     } else {

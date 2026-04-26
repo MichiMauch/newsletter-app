@@ -42,6 +42,8 @@ export interface NewsletterRecipientRow {
   click_count: number
   bounced_at: string | null
   bounce_type: string | null
+  bounce_sub_type: string | null
+  bounce_message: string | null
   complained_at: string | null
 }
 

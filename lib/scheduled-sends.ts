@@ -246,6 +246,7 @@ export async function pushDueSendsToResend(): Promise<{
           blocks,
           postsMap,
           scheduledAt: row.scheduledAtUtc,
+          sendId,
         })
         await db.update(scheduledSends)
           .set({
@@ -294,7 +295,7 @@ export async function flushDoneScheduledSends(): Promise<{ flushed: number }> {
     SET status = 'sent'
     WHERE status = 'scheduled'
       AND scheduled_for IS NOT NULL
-      AND scheduled_for <= datetime('now')
+      AND datetime(scheduled_for) <= datetime('now')
       AND NOT EXISTS (
         SELECT 1 FROM scheduled_sends
         WHERE scheduled_sends.send_id = newsletter_sends.id

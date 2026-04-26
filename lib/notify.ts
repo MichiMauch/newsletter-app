@@ -25,6 +25,27 @@ function fromAddress(site: SiteConfig): string {
   return `${site.from_name} <${site.from_email}>`
 }
 
+function siteUrlOf(site: SiteConfig): string {
+  return process.env.SITE_URL || site.site_url
+}
+
+// Browser-Page für menschliche Klicks (gestylte Bestätigung)
+function unsubscribePageUrl(site: SiteConfig, token: string): string {
+  return `${siteUrlOf(site)}/unsubscribe?token=${token}`
+}
+
+// One-Click-Endpoint für den List-Unsubscribe-Header (POST + GET)
+function unsubscribeOneClickUrl(site: SiteConfig, token: string): string {
+  return `${siteUrlOf(site)}/api/v1/unsubscribe?token=${token}`
+}
+
+function listUnsubscribeHeaders(site: SiteConfig, token: string): Record<string, string> {
+  return {
+    'List-Unsubscribe': `<${unsubscribeOneClickUrl(site, token)}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  }
+}
+
 // ─── Storno einer geplanten Resend-Email ─────────────────────────────
 // Funktioniert nur, solange Resend die Mail noch nicht abgesendet hat.
 // Wirft nicht — Aufrufer entscheidet, was bei Fehler passiert.
@@ -43,18 +64,24 @@ export async function cancelResendEmail(resendEmailId: string): Promise<{ ok: bo
 // ─── Newsletter: Bestätigungs-E-Mail ──────────────────────────────────
 
 export async function sendConfirmationEmail(site: SiteConfig, data: { email: string; token: string }) {
-  const siteUrl = process.env.SITE_URL || site.site_url
-  const confirmUrl = `${siteUrl}/newsletter/bestaetigen?token=${data.token}`
+  const confirmUrl = `${siteUrlOf(site)}/newsletter/bestaetigen?token=${data.token}`
 
   try {
     const { html, text } = await renderConfirmationEmail({ site, confirmUrl })
-    await getResend().emails.send({
-      from: fromAddress(site),
-      to: data.email,
-      subject: `Bitte bestätige deine Newsletter-Anmeldung auf ${site.name}`,
-      html,
-      text,
-    })
+    const result = await getResend().emails.send(
+      {
+        from: fromAddress(site),
+        to: data.email,
+        subject: `Bitte bestätige deine Newsletter-Anmeldung auf ${site.name}`,
+        html,
+        text,
+        headers: listUnsubscribeHeaders(site, data.token),
+      },
+      { idempotencyKey: `confirm:${data.token}` },
+    )
+    if (result.error) {
+      throw new Error(`Resend: ${result.error.message}`)
+    }
   } catch (err) {
     console.error('[notify] Failed to send confirmation email:', err)
   }
@@ -62,16 +89,24 @@ export async function sendConfirmationEmail(site: SiteConfig, data: { email: str
 
 // ─── Newsletter: Bereits angemeldet ──────────────────────────────────
 
-export async function sendAlreadySubscribedEmail(site: SiteConfig, data: { email: string }) {
+export async function sendAlreadySubscribedEmail(site: SiteConfig, data: { email: string; token: string }) {
   try {
-    const { html, text } = await renderAlreadySubscribedEmail({ site })
-    await getResend().emails.send({
-      from: fromAddress(site),
-      to: data.email,
-      subject: `Du bist bereits für den ${site.name} Newsletter angemeldet`,
-      html,
-      text,
-    })
+    const unsubscribeUrl = unsubscribePageUrl(site, data.token)
+    const { html, text } = await renderAlreadySubscribedEmail({ site, unsubscribeUrl })
+    const result = await getResend().emails.send(
+      {
+        from: fromAddress(site),
+        to: data.email,
+        subject: `Du bist bereits für den ${site.name} Newsletter angemeldet`,
+        html,
+        text,
+        headers: listUnsubscribeHeaders(site, data.token),
+      },
+      { idempotencyKey: `already:${data.token}` },
+    )
+    if (result.error) {
+      throw new Error(`Resend: ${result.error.message}`)
+    }
   } catch (err) {
     console.error('[notify] Failed to send already-subscribed email:', err)
   }
@@ -93,8 +128,7 @@ export async function sendNewsletterEmail(
 ): Promise<{ resendEmailId: string | null }> {
   const slug = data.postSlug.replace(/\.md$/, '')
   const postUrl = `${site.site_url}/tiny-house/${slug}/`
-  const siteUrl = process.env.SITE_URL || site.site_url
-  const unsubscribeUrl = `${siteUrl}/unsubscribe?token=${data.unsubscribeToken}`
+  const unsubscribeUrl = unsubscribePageUrl(site, data.unsubscribeToken)
 
   const newsletterProps = {
     site,
@@ -110,17 +144,21 @@ export async function sendNewsletterEmail(
     renderNewsletterText(newsletterProps),
   ])
 
-  const result = await getResend().emails.send({
-    from: fromAddress(site),
-    to: data.email,
-    subject: data.postTitle,
-    html,
-    text,
-    headers: {
-      'List-Unsubscribe': `<${unsubscribeUrl}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  const result = await getResend().emails.send(
+    {
+      from: fromAddress(site),
+      to: data.email,
+      subject: data.postTitle,
+      html,
+      text,
+      headers: listUnsubscribeHeaders(site, data.unsubscribeToken),
     },
-  })
+    { idempotencyKey: `nl-single:${slug}:${data.unsubscribeToken}` },
+  )
+
+  if (result.error) {
+    throw new Error(`Resend: ${result.error.message}`)
+  }
 
   return { resendEmailId: result.data?.id ?? null }
 }
@@ -136,10 +174,10 @@ export async function sendMultiBlockNewsletterEmail(
     blocks: NewsletterBlock[]
     postsMap: Record<string, PostRef>
     scheduledAt?: string // ISO-8601, an Resend durchgereicht für Send-Time Optimization
+    sendId?: number // für deterministischen idempotencyKey beim Newsletter-Versand
   },
 ): Promise<{ resendEmailId: string | null }> {
-  const siteUrl = process.env.SITE_URL || site.site_url
-  const unsubscribeUrl = `${siteUrl}/unsubscribe?token=${data.unsubscribeToken}`
+  const unsubscribeUrl = unsubscribePageUrl(site, data.unsubscribeToken)
 
   try {
     const props = {
@@ -154,18 +192,29 @@ export async function sendMultiBlockNewsletterEmail(
       renderMultiBlockText(props),
     ])
 
-    const result = await getResend().emails.send({
-      from: fromAddress(site),
-      to: data.email,
-      subject: data.subject,
-      html,
-      text,
-      headers: {
-        'List-Unsubscribe': `<${unsubscribeUrl}>`,
-        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    // Test-Sends nutzen Token "test" — kein deterministischer Key,
+    // sonst gibt Resend bei mehreren Test-Sends im 24h-Fenster die alte Mail zurück.
+    const idempotencyKey =
+      data.sendId !== undefined && data.unsubscribeToken !== 'test'
+        ? `nl-multi:${data.sendId}:${data.email}`
+        : undefined
+
+    const result = await getResend().emails.send(
+      {
+        from: fromAddress(site),
+        to: data.email,
+        subject: data.subject,
+        html,
+        text,
+        headers: listUnsubscribeHeaders(site, data.unsubscribeToken),
+        ...(data.scheduledAt ? { scheduledAt: data.scheduledAt } : {}),
       },
-      ...(data.scheduledAt ? { scheduledAt: data.scheduledAt } : {}),
-    })
+      idempotencyKey ? { idempotencyKey } : undefined,
+    )
+
+    if (result.error) {
+      throw new Error(`Resend: ${result.error.message}`)
+    }
 
     return { resendEmailId: result.data?.id ?? null }
   } catch (err) {

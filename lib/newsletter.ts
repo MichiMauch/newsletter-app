@@ -73,16 +73,20 @@ export async function createSubscriber(siteId: string, email: string): Promise<{
   const db = getDb()
   const token = crypto.randomUUID()
 
-  const existing = await db.select({ id: newsletterSubscribers.id, status: newsletterSubscribers.status })
+  const existing = await db.select({
+    id: newsletterSubscribers.id,
+    status: newsletterSubscribers.status,
+    token: newsletterSubscribers.token,
+  })
     .from(newsletterSubscribers)
     .where(and(eq(newsletterSubscribers.siteId, siteId), eq(newsletterSubscribers.email, email)))
     .limit(1)
 
   if (existing.length > 0) {
-    const { status } = existing[0]
+    const { status, token: existingToken } = existing[0]
 
     if (status === 'confirmed') {
-      return { token: '', alreadyConfirmed: true }
+      return { token: existingToken, alreadyConfirmed: true }
     }
 
     if (status === 'unsubscribed') {
@@ -279,7 +283,7 @@ export async function markScheduledSendAsSent(sendId: number): Promise<void> {
     SET status = 'sent'
     WHERE id = ${sendId}
       AND status = 'scheduled'
-      AND (scheduled_for IS NULL OR scheduled_for <= datetime('now'))
+      AND (scheduled_for IS NULL OR datetime(scheduled_for) <= datetime('now'))
   `)
 }
 
@@ -339,7 +343,7 @@ export async function updateRecipientEvent(
   resendEmailId: string,
   event: 'delivered' | 'clicked' | 'bounced' | 'complained',
   timestamp: string,
-  metadata?: { bounce_type?: string; click_url?: string },
+  metadata?: { bounce_type?: string; bounce_sub_type?: string; bounce_message?: string; click_url?: string },
 ): Promise<void> {
   const db = getDb()
 
@@ -389,7 +393,13 @@ export async function updateRecipientEvent(
     }
     case 'bounced': {
       await db.update(newsletterRecipients)
-        .set({ status: 'bounced', bouncedAt: timestamp, bounceType: metadata?.bounce_type ?? null })
+        .set({
+          status: 'bounced',
+          bouncedAt: timestamp,
+          bounceType: metadata?.bounce_type ?? null,
+          bounceSubType: metadata?.bounce_sub_type ?? null,
+          bounceMessage: metadata?.bounce_message ?? null,
+        })
         .where(eq(newsletterRecipients.id, recipient.id))
       await db.update(newsletterSends)
         .set({ bouncedCount: sql`${newsletterSends.bouncedCount} + 1` })
@@ -398,6 +408,25 @@ export async function updateRecipientEvent(
         await db.update(newsletterSubscribers)
           .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
           .where(and(eq(newsletterSubscribers.email, recipient.email), eq(newsletterSubscribers.status, 'confirmed')))
+      } else {
+        // Soft/unknown bounce: suspend after threshold in rolling window.
+        // Schwelle = 3 in 90 Tagen; Resend liefert bounce_type oft als undefined,
+        // daher zählen wir alles ausser explizit 'hard'.
+        const SOFT_BOUNCE_THRESHOLD = 3
+        const counted = await db.run(sql`
+          SELECT COUNT(*) AS count FROM newsletter_recipients
+          WHERE email = ${recipient.email}
+            AND status = 'bounced'
+            AND (bounce_type IS NULL OR bounce_type != 'hard')
+            AND bounced_at IS NOT NULL
+            AND bounced_at > datetime('now', '-90 days')
+        `)
+        const softCount = (counted.rows?.[0]?.count as number) ?? 0
+        if (softCount >= SOFT_BOUNCE_THRESHOLD) {
+          await db.update(newsletterSubscribers)
+            .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
+            .where(and(eq(newsletterSubscribers.email, recipient.email), eq(newsletterSubscribers.status, 'confirmed')))
+        }
       }
       break
     }
@@ -449,11 +478,40 @@ export async function getSendBlocksJson(sendId: number): Promise<string | null> 
   return rows[0]?.blocksJson ?? null
 }
 
-export async function getRecipientsForSend(sendId: number): Promise<NewsletterRecipient[]> {
+export interface NewsletterRecipientRow {
+  id: number
+  email: string
+  resend_email_id: string | null
+  status: NewsletterRecipient['status']
+  delivered_at: string | null
+  clicked_at: string | null
+  click_count: number
+  bounced_at: string | null
+  bounce_type: string | null
+  bounce_sub_type: string | null
+  bounce_message: string | null
+  complained_at: string | null
+}
+
+export async function getRecipientsForSend(sendId: number): Promise<NewsletterRecipientRow[]> {
   const db = getDb()
-  return db.select().from(newsletterRecipients)
+  const rows = await db.select().from(newsletterRecipients)
     .where(eq(newsletterRecipients.sendId, sendId))
     .orderBy(newsletterRecipients.email)
+  return rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    resend_email_id: r.resendEmailId,
+    status: r.status,
+    delivered_at: r.deliveredAt,
+    clicked_at: r.clickedAt,
+    click_count: r.clickCount,
+    bounced_at: r.bouncedAt,
+    bounce_type: r.bounceType,
+    bounce_sub_type: r.bounceSubType,
+    bounce_message: r.bounceMessage,
+    complained_at: r.complainedAt,
+  }))
 }
 
 export async function getFailedRecipientsForSend(siteId: string, sendId: number): Promise<{ email: string; token: string }[]> {
@@ -502,6 +560,148 @@ export async function getOverallNewsletterStats(siteId: string): Promise<Overall
     avg_click_rate: (r.avg_click_rate as number) || 0,
     avg_bounce_rate: (r.avg_bounce_rate as number) || 0, total_complaints: (r.total_complaints as number) || 0,
   }
+}
+
+// ─── Bounce-Übersicht (Adressstamm) ────────────────────────────────────
+
+export interface BounceBreakdownRow {
+  bounce_type: string | null
+  bounce_sub_type: string | null
+  count: number
+  unique_emails: number
+}
+
+export interface BouncedAddressRow {
+  email: string
+  bounce_count: number
+  last_bounced_at: string
+  last_bounce_type: string | null
+  last_bounce_sub_type: string | null
+  last_bounce_message: string | null
+  last_source: 'newsletter' | 'automation'
+  newsletter_bounces: number
+  automation_bounces: number
+  subscriber_status: 'pending' | 'confirmed' | 'unsubscribed' | null
+}
+
+export interface BounceOverview {
+  total_bounces: number
+  unique_addresses: number
+  newsletter_bounces: number
+  automation_bounces: number
+  by_subtype: BounceBreakdownRow[]
+  addresses: BouncedAddressRow[]
+}
+
+// Inline-CTE: vereint Bounces aus newsletter_recipients und email_automation_sends.
+// Wird mehrfach referenziert, damit die Subqueries nicht jede Quelle einzeln joinen müssen.
+const allBouncesCte = (siteId: string) => sql`
+  WITH all_bounces AS (
+    SELECT
+      'newsletter' AS source,
+      nr.email AS email,
+      nr.bounce_type AS bounce_type,
+      nr.bounce_sub_type AS bounce_sub_type,
+      nr.bounce_message AS bounce_message,
+      nr.bounced_at AS bounced_at
+    FROM newsletter_recipients nr
+    JOIN newsletter_sends ns ON ns.id = nr.send_id
+    WHERE ns.site_id = ${siteId} AND nr.status = 'bounced'
+    UNION ALL
+    SELECT
+      'automation' AS source,
+      eae.subscriber_email AS email,
+      eas.bounce_type AS bounce_type,
+      eas.bounce_sub_type AS bounce_sub_type,
+      eas.bounce_message AS bounce_message,
+      eas.bounced_at AS bounced_at
+    FROM email_automation_sends eas
+    JOIN email_automation_enrollments eae ON eae.id = eas.enrollment_id
+    JOIN email_automations ea ON ea.id = eae.automation_id
+    WHERE ea.site_id = ${siteId} AND eas.status = 'bounced'
+  )
+`
+
+export async function getBounceOverview(siteId: string, limit = 200): Promise<BounceOverview> {
+  const db = getDb()
+
+  // Aggregat nach (bounce_type, bounce_sub_type)
+  const breakdownRes = await db.run(sql`
+    ${allBouncesCte(siteId)}
+    SELECT bounce_type, bounce_sub_type,
+      COUNT(*) AS count,
+      COUNT(DISTINCT email) AS unique_emails
+    FROM all_bounces
+    GROUP BY bounce_type, bounce_sub_type
+    ORDER BY count DESC
+  `)
+  const by_subtype: BounceBreakdownRow[] = (breakdownRes.rows ?? []).map((r) => ({
+    bounce_type: (r.bounce_type as string | null) ?? null,
+    bounce_sub_type: (r.bounce_sub_type as string | null) ?? null,
+    count: (r.count as number) || 0,
+    unique_emails: (r.unique_emails as number) || 0,
+  }))
+
+  // Adressliste: letzter Bounce + Counts pro Quelle
+  const addrRes = await db.run(sql`
+    ${allBouncesCte(siteId)},
+    ranked AS (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY email ORDER BY bounced_at DESC) AS rn
+      FROM all_bounces
+    ),
+    counts AS (
+      SELECT email,
+        COUNT(*) AS bounce_count,
+        MAX(bounced_at) AS last_bounced_at,
+        SUM(CASE WHEN source = 'newsletter' THEN 1 ELSE 0 END) AS newsletter_bounces,
+        SUM(CASE WHEN source = 'automation' THEN 1 ELSE 0 END) AS automation_bounces
+      FROM all_bounces
+      GROUP BY email
+    )
+    SELECT c.email,
+      c.bounce_count,
+      c.last_bounced_at,
+      c.newsletter_bounces,
+      c.automation_bounces,
+      r.bounce_type AS last_bounce_type,
+      r.bounce_sub_type AS last_bounce_sub_type,
+      r.bounce_message AS last_bounce_message,
+      r.source AS last_source,
+      (SELECT s.status FROM newsletter_subscribers s
+        WHERE s.site_id = ${siteId} AND s.email = c.email LIMIT 1) AS subscriber_status
+    FROM counts c
+    JOIN ranked r ON r.email = c.email AND r.rn = 1
+    ORDER BY c.last_bounced_at DESC
+    LIMIT ${limit}
+  `)
+  const addresses: BouncedAddressRow[] = (addrRes.rows ?? []).map((r) => ({
+    email: r.email as string,
+    bounce_count: (r.bounce_count as number) || 0,
+    last_bounced_at: r.last_bounced_at as string,
+    last_bounce_type: (r.last_bounce_type as string | null) ?? null,
+    last_bounce_sub_type: (r.last_bounce_sub_type as string | null) ?? null,
+    last_bounce_message: (r.last_bounce_message as string | null) ?? null,
+    last_source: ((r.last_source as string) === 'automation' ? 'automation' : 'newsletter') as 'newsletter' | 'automation',
+    newsletter_bounces: (r.newsletter_bounces as number) || 0,
+    automation_bounces: (r.automation_bounces as number) || 0,
+    subscriber_status: (r.subscriber_status as 'pending' | 'confirmed' | 'unsubscribed' | null) ?? null,
+  }))
+
+  const totalsRes = await db.run(sql`
+    ${allBouncesCte(siteId)}
+    SELECT
+      COUNT(DISTINCT email) AS unique_emails,
+      SUM(CASE WHEN source = 'newsletter' THEN 1 ELSE 0 END) AS newsletter_bounces,
+      SUM(CASE WHEN source = 'automation' THEN 1 ELSE 0 END) AS automation_bounces
+    FROM all_bounces
+  `)
+  const totalsRow = totalsRes.rows?.[0] ?? {}
+  const total_bounces = by_subtype.reduce((sum, b) => sum + b.count, 0)
+  const unique_addresses = (totalsRow.unique_emails as number) || 0
+  const newsletter_bounces = (totalsRow.newsletter_bounces as number) || 0
+  const automation_bounces = (totalsRow.automation_bounces as number) || 0
+
+  return { total_bounces, unique_addresses, newsletter_bounces, automation_bounces, by_subtype, addresses }
 }
 
 // ─── Trends ─────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Heading, Text } from '@react-email/components'
+import { Heading, Link, Text } from '@react-email/components'
 import type { SiteConfig } from '@/lib/site-config'
 import { sanitizeColor } from '@/lib/newsletter-template'
 import {
@@ -15,9 +15,10 @@ import { PREVIEW_SITE_CONFIG } from './_preview-data'
 
 export interface AlreadySubscribedEmailProps {
   site: SiteConfig
+  unsubscribeUrl: string
 }
 
-export function AlreadySubscribedEmail({ site }: AlreadySubscribedEmailProps) {
+export function AlreadySubscribedEmail({ site, unsubscribeUrl }: AlreadySubscribedEmailProps) {
   const accentColor = sanitizeColor(site.accent_color)
   return (
     <TransactionalLayout
@@ -36,6 +37,11 @@ export function AlreadySubscribedEmail({ site }: AlreadySubscribedEmailProps) {
       </CtaButton>
       <Text className={mutedClass} style={mutedStyle}>
         Wenn du dich nicht erneut angemeldet hast, kannst du diese E-Mail einfach ignorieren.
+        Möchtest du den Newsletter nicht mehr erhalten?{' '}
+        <Link href={unsubscribeUrl} className="e-link-muted" style={{ color: '#9ca3af', textDecoration: 'underline' }}>
+          Hier abmelden
+        </Link>
+        .
       </Text>
     </TransactionalLayout>
   )
@@ -43,6 +49,7 @@ export function AlreadySubscribedEmail({ site }: AlreadySubscribedEmailProps) {
 
 AlreadySubscribedEmail.PreviewProps = {
   site: PREVIEW_SITE_CONFIG,
+  unsubscribeUrl: 'https://example.com/unsubscribe?token=preview-token',
 } satisfies AlreadySubscribedEmailProps
 
 export default AlreadySubscribedEmail

@@ -165,7 +165,7 @@ export async function updateAutomationSendEvent(
   resendEmailId: string,
   event: 'delivered' | 'clicked' | 'bounced' | 'complained',
   timestamp: string,
-  extras?: { bounce_type?: string },
+  extras?: { bounce_type?: string; bounce_sub_type?: string; bounce_message?: string },
 ): Promise<void> {
   const db = getDb()
 
@@ -195,7 +195,13 @@ export async function updateAutomationSendEvent(
       break
     case 'bounced':
       await db.update(emailAutomationSends)
-        .set({ status: 'bounced', bouncedAt: timestamp, bounceType: extras?.bounce_type ?? null })
+        .set({
+          status: 'bounced',
+          bouncedAt: timestamp,
+          bounceType: extras?.bounce_type ?? null,
+          bounceSubType: extras?.bounce_sub_type ?? null,
+          bounceMessage: extras?.bounce_message ?? null,
+        })
         .where(eq(emailAutomationSends.id, id))
       break
     case 'complained':

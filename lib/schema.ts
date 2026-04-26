@@ -93,11 +93,14 @@ export const newsletterRecipients = sqliteTable('newsletter_recipients', {
   clickCount: integer('click_count').notNull().default(0),
   bouncedAt: text('bounced_at'),
   bounceType: text('bounce_type'),
+  bounceSubType: text('bounce_sub_type'),
+  bounceMessage: text('bounce_message'),
   complainedAt: text('complained_at'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_nr_send_id').on(table.sendId),
   index('idx_nr_resend_id').on(table.resendEmailId),
+  index('idx_nr_bounce_sub_type').on(table.bounceSubType),
 ])
 
 // ─── Newsletter Link Clicks ─────────────────────────────────────────────
@@ -180,10 +183,13 @@ export const emailAutomationSends = sqliteTable('email_automation_sends', {
   clickCount: integer('click_count').notNull().default(0),
   bouncedAt: text('bounced_at'),
   bounceType: text('bounce_type'),
+  bounceSubType: text('bounce_sub_type'),
+  bounceMessage: text('bounce_message'),
   complainedAt: text('complained_at'),
 }, (table) => [
   index('idx_eaS_enrollment').on(table.enrollmentId),
   index('idx_eaS_resend').on(table.resendEmailId),
+  index('idx_eaS_bounce_sub_type').on(table.bounceSubType),
 ])
 
 // ─── Automation Graph: Nodes ────────────────────────────────────────────

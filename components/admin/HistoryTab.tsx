@@ -240,13 +240,20 @@ export default function HistoryTab({
                             complained: { label: 'Beschwerde', cls: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300' },
                           }
                           const badge = recipientBadge[r.status] || recipientBadge.sent
+                          const bounceLabel = r.bounce_type
+                            ? `${r.bounce_type}${r.bounce_sub_type ? ` · ${r.bounce_sub_type}` : ''}`
+                            : null
                           return (
                             <tr key={r.id} className="border-b border-[var(--border)] last:border-0">
                               <td className="px-5 py-3 text-[var(--text)]">{r.email}</td>
                               <td className="px-5 py-3"><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>{badge.label}</span></td>
                               <td className="px-5 py-3 text-[var(--text-secondary)]">{r.delivered_at ? formatDate(r.delivered_at) : '—'}</td>
                               <td className="px-5 py-3 text-right text-[var(--text)]">{r.click_count > 0 ? r.click_count : '—'}</td>
-                              <td className="px-5 py-3 text-[var(--text-secondary)]">{r.bounce_type || '—'}</td>
+                              <td className="px-5 py-3 text-[var(--text-secondary)]">
+                                {bounceLabel ? (
+                                  <span title={r.bounce_message ?? undefined}>{bounceLabel}</span>
+                                ) : '—'}
+                              </td>
                             </tr>
                           )
                         })}

@@ -13,6 +13,7 @@ import {
   getLinkClicksForSend,
   getSendBlocksJson,
   getOverallNewsletterStats,
+  getBounceOverview,
   deleteSubscriber,
   unsubscribeById,
   cancelNewsletterSend,
@@ -46,6 +47,12 @@ export async function GET(request: Request) {
     const includePosts = url.searchParams.get('posts') === '1'
     const includeStats = url.searchParams.get('stats') === '1'
     const sendDetailId = url.searchParams.get('sendDetail')
+    const wantsBounces = url.searchParams.get('bounces') === '1'
+
+    if (wantsBounces) {
+      const overview = await getBounceOverview(SITE_ID)
+      return new Response(JSON.stringify({ bounceOverview: overview }), { status: 200, headers })
+    }
 
     if (sendDetailId) {
       const id = parseInt(sendDetailId, 10)
@@ -394,6 +401,7 @@ function streamSend(
               subject,
               blocks,
               postsMap,
+              sendId,
             })
             successCount++
             await updateRecipientResendId(sendId, sub.email, result.resendEmailId ?? '')
@@ -401,9 +409,14 @@ function streamSend(
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : ''
             const statusCode = (err as { statusCode?: number }).statusCode
-            const isRateLimit = statusCode === 429 || message.includes('rate')
-            if (isRateLimit && attempt < MAX_RETRIES) {
-              await new Promise((resolve) => setTimeout(resolve, 3000 * (attempt + 1)))
+            const isRetryable =
+              statusCode === 429 ||
+              (typeof statusCode === 'number' && statusCode >= 500) ||
+              message.includes('rate')
+            if (isRetryable && attempt < MAX_RETRIES) {
+              const baseMs = 1000 * Math.pow(2, attempt) // 1s, 2s, 4s
+              const jitterMs = Math.floor(Math.random() * 500)
+              await new Promise((resolve) => setTimeout(resolve, baseMs + jitterMs))
             } else {
               console.error(`[newsletter] Failed to send to ${sub.email}:`, message)
               break
