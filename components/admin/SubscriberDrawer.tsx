@@ -74,6 +74,13 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
     return () => window.removeEventListener('keydown', handleEsc)
   }, [onClose])
 
+  useEffect(() => {
+    toast.pushOverlay()
+    return () => toast.popOverlay()
+  // toast methods are stable (useCallback in provider), don't re-fire on every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function refresh() {
     const res = await fetch(`/api/admin/subscriber?email=${encodeURIComponent(subscriber.email)}`, { cache: 'no-store' })
     if (res.ok) setProfile(await res.json())

@@ -52,6 +52,8 @@ export default function AiCopilot({ context }: AiCopilotProps) {
 
   const actions = CONTEXT_ACTIONS[context] ?? []
 
+  if (toast.isOverlayOpen) return null
+
   useEffect(() => {
     setInsights({})
   }, [context])

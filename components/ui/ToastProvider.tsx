@@ -27,6 +27,9 @@ interface ToastContextValue {
   info: (message: string) => void
   activity: Toast[]
   clearActivity: () => void
+  isOverlayOpen: boolean
+  pushOverlay: () => void
+  popOverlay: () => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -55,6 +58,7 @@ function saveActivity(entries: Toast[]) {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<Toast[]>([])
   const [activity, setActivity] = useState<Toast[]>([])
+  const [overlayCount, setOverlayCount] = useState(0)
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   useEffect(() => {
@@ -100,6 +104,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     saveActivity([])
   }, [])
 
+  const pushOverlay = useCallback(() => setOverlayCount((c) => c + 1), [])
+  const popOverlay = useCallback(() => setOverlayCount((c) => Math.max(0, c - 1)), [])
+
   const value = useMemo<ToastContextValue>(() => ({
     toast,
     success: (m) => toast('success', m),
@@ -107,13 +114,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     info: (m) => toast('info', m),
     activity,
     clearActivity,
-  }), [toast, activity, clearActivity])
+    isOverlayOpen: overlayCount > 0,
+    pushOverlay,
+    popOverlay,
+  }), [toast, activity, clearActivity, overlayCount, pushOverlay, popOverlay])
 
   return (
     <ToastContext.Provider value={value}>
       {children}
       <ToastViewport toasts={active} onDismiss={dismiss} />
-      <ActivityLogPanel activity={activity} onClear={clearActivity} />
+      {overlayCount === 0 && <ActivityLogPanel activity={activity} onClear={clearActivity} />}
     </ToastContext.Provider>
   )
 }
