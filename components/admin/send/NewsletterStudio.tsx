@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
 import { blocksAreValid, getUsedSlugs } from '@/lib/newsletter-block-helpers'
 import type { SiteConfig } from '@/lib/site-config'
@@ -10,6 +10,7 @@ import { DraggablePostItem, SlotCard } from './DragDropSlots'
 import InsertToolbar from './InsertToolbar'
 import PlaceholderMenu from '../../PlaceholderMenu'
 import SubjectScoreBadge from './SubjectScoreBadge'
+import StudioCopilot from './StudioCopilot'
 
 // Inserts `text` at the input's current cursor position and re-focuses it
 // with the cursor right after the inserted snippet. Used to drop placeholders
@@ -85,6 +86,7 @@ export default function NewsletterStudio({
   const subjectARef = useRef<HTMLInputElement | null>(null)
   const subjectBRef = useRef<HTMLInputElement | null>(null)
   const preheaderRef = useRef<HTMLInputElement | null>(null)
+  const [copilotOpen, setCopilotOpen] = useState(false)
 
   const usedSlugs = getUsedSlugs(blocks)
   const html = blocksAreValid(blocks)
@@ -218,6 +220,21 @@ export default function NewsletterStudio({
           </label>
         </div>
 
+        <button
+          type="button"
+          onClick={() => setCopilotOpen((o) => !o)}
+          className={`flex items-center gap-1.5 border px-2.5 py-1 text-xs font-medium transition-colors ${
+            copilotOpen
+              ? 'border-primary-400/50 bg-primary-500/10 text-primary-700 dark:text-primary-300'
+              : 'border-[var(--border)] bg-[var(--background-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+          }`}
+          title={copilotOpen ? 'Co-Pilot schliessen' : 'AI Co-Pilot öffnen'}
+          aria-pressed={copilotOpen}
+        >
+          <span>✨</span>
+          <span>Co-Pilot</span>
+        </button>
+
         <div className="flex items-center border border-[var(--border)] bg-[var(--background-card)]" role="group" aria-label="Vorschau-Breite">
           <button
             type="button"
@@ -297,27 +314,39 @@ export default function NewsletterStudio({
           </div>
         </main>
 
-        {/* Right: live preview */}
-        <aside className="flex w-1/2 max-w-[760px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-secondary)]">
-          <div className="border-b border-[var(--border)] px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-            Live-Vorschau · {viewport === 'mobile' ? '375 px' : '600 px'}
-          </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {html ? (
-              <iframe
-                key={viewport}
-                title="Newsletter-Vorschau"
-                srcDoc={html}
-                style={{ width: previewWidth, height: '100%', minHeight: '600px' }}
-                className="mx-auto block border border-[var(--border)] bg-white shadow-sm"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-center text-sm text-[var(--text-muted)]">
-                Füge Inhalte hinzu, um die Vorschau zu sehen.
-              </div>
-            )}
-          </div>
-        </aside>
+        {/* Right: live preview OR copilot (toggle from header) */}
+        {copilotOpen ? (
+          <StudioCopilot
+            subject={subject}
+            preheader={preheader}
+            blocks={blocks}
+            onSubjectChange={onSubjectChange}
+            onPreheaderChange={onPreheaderChange}
+            onUpdateBlock={onUpdateBlock}
+            onClose={() => setCopilotOpen(false)}
+          />
+        ) : (
+          <aside className="flex w-1/2 max-w-[760px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-secondary)]">
+            <div className="border-b border-[var(--border)] px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              Live-Vorschau · {viewport === 'mobile' ? '375 px' : '600 px'}
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {html ? (
+                <iframe
+                  key={viewport}
+                  title="Newsletter-Vorschau"
+                  srcDoc={html}
+                  style={{ width: previewWidth, height: '100%', minHeight: '600px' }}
+                  className="mx-auto block border border-[var(--border)] bg-white shadow-sm"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-center text-sm text-[var(--text-muted)]">
+                  Füge Inhalte hinzu, um die Vorschau zu sehen.
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   )
