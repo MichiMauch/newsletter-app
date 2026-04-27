@@ -16,7 +16,6 @@ interface Props {
   onSubjectChange: (value: string) => void
   onPreheaderChange: (value: string) => void
   onUpdateBlock: (index: number, updated: NewsletterBlock) => void
-  onClose: () => void
 }
 
 export default function StudioCopilot({
@@ -27,7 +26,6 @@ export default function StudioCopilot({
   onSubjectChange,
   onPreheaderChange,
   onUpdateBlock,
-  onClose,
 }: Props) {
   const { messages, sending, error, send, markResolved, resolvedToolIds, reset } = useCopilotChat({
     subject, preheader, blocks, postsMap,
@@ -58,31 +56,7 @@ export default function StudioCopilot({
   }
 
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--background-card)]">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-          AI Co-Pilot
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={reset}
-            className="border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)]"
-            title="Konversation zurücksetzen"
-          >
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)]"
-            title="Co-Pilot schliessen"
-          >
-            ✕
-          </button>
-        </div>
-      </header>
-
+    <div className="flex flex-1 min-h-0 flex-col bg-[var(--background-card)]">
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages.map((m, i) => (
           <ChatBubble
@@ -125,15 +99,25 @@ export default function StudioCopilot({
           className="w-full resize-none border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-xs text-[var(--text)] outline-none focus:border-primary-400"
           disabled={sending}
         />
-        <button
-          type="submit"
-          disabled={sending || input.trim() === ''}
-          className="mt-1 w-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--background-card)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Senden
-        </button>
+        <div className="mt-1 flex gap-1">
+          <button
+            type="button"
+            onClick={reset}
+            className="border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1 text-[10px] uppercase tracking-widest text-[var(--text-muted)] transition-colors hover:bg-[var(--background-card)]"
+            title="Konversation zurücksetzen"
+          >
+            Reset
+          </button>
+          <button
+            type="submit"
+            disabled={sending || input.trim() === ''}
+            className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--background-card)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Senden
+          </button>
+        </div>
       </form>
-    </aside>
+    </div>
   )
 }
 
