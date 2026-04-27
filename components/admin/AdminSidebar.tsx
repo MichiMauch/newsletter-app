@@ -86,6 +86,10 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
 
 interface AdminSidebarProps {
   tab: Tab
+  // The tab the user just clicked, while the heavy re-render is still in
+  // flight. Drives the active highlight + spinner so the click feels
+  // instantaneous even when the destination tab takes a moment to mount.
+  pendingTab?: Tab | null
   onTabChange: (tab: Tab) => void
   sidebarOpen: boolean
   onToggleSidebar: () => void
@@ -98,6 +102,7 @@ interface AdminSidebarProps {
 
 export default function AdminSidebar({
   tab,
+  pendingTab = null,
   onTabChange,
   sidebarOpen,
   onToggleSidebar,
@@ -142,22 +147,35 @@ export default function AdminSidebar({
                 gIdx > 0 && <div className="mx-2 mb-1 mt-1 h-px bg-[var(--border)]/40" aria-hidden />
               )
             )}
-            {group.items.map((item) => (
-              <a
-                key={item.id}
-                href={tabToHref(item.id)}
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey || e.button === 1) return
-                  e.preventDefault()
-                  onTabChange(item.id)
-                }}
-                className={`sidebar-icon${tab === item.id ? ' active' : ''}`}
-                title={!sidebarOpen ? item.label : undefined}
-              >
-                {item.icon}
-                <span className="sidebar-label">{item.label}</span>
-              </a>
-            ))}
+            {group.items.map((item) => {
+              const effective = pendingTab ?? tab
+              const isActive = effective === item.id
+              const isLoading = pendingTab === item.id
+              return (
+                <a
+                  key={item.id}
+                  href={tabToHref(item.id)}
+                  onClick={(e) => {
+                    if (e.ctrlKey || e.metaKey || e.button === 1) return
+                    e.preventDefault()
+                    onTabChange(item.id)
+                  }}
+                  className={`sidebar-icon${isActive ? ' active' : ''}${isLoading ? ' is-loading' : ''}`}
+                  title={!sidebarOpen ? item.label : undefined}
+                  aria-busy={isLoading || undefined}
+                >
+                  {isLoading ? (
+                    <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    item.icon
+                  )}
+                  <span className="sidebar-label">{item.label}</span>
+                </a>
+              )
+            })}
           </div>
         ))}
       </div>

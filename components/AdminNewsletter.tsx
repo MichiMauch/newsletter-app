@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useTransition } from 'react'
 import AutomationEditor from './AutomationEditor'
 import DashboardTab from './admin/DashboardTab'
 import SubscribersTab from './admin/SubscribersTab'
@@ -50,14 +50,36 @@ import ComposeWizard from './admin/send/ComposeWizard'
 export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTab = 'compose', automationId }: { initialTab?: Tab; initialSubTab?: SendSubTab; automationId?: number } = {}) {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [sendSubTab, setSendSubTab] = useState<SendSubTab>(initialSubTab)
+  // Heavy tabs (Automations editor, History charts) used to block the click-
+  // to-render transition long enough that the sidebar appeared frozen until
+  // the user reloaded. We mark the actual setTab inside startTransition so
+  // React keeps the previous tab interactive while it prepares the next one;
+  // pendingTab carries the user's *intent* synchronously so the sidebar
+  // highlights and shows a spinner the moment the click registers.
+  const [pendingTabRaw, setPendingTabRaw] = useState<Tab | null>(null)
+  const [pendingSubTabRaw, setPendingSubTabRaw] = useState<SendSubTab | null>(null)
+  const [isPendingNav, startNavTransition] = useTransition()
+  // Only expose the pending value while the transition is actually running.
+  // When isPendingNav flips back to false, the stale state still sits in the
+  // raw setters but is hidden from props — avoids a setState-in-effect.
+  const pendingTab = isPendingNav ? pendingTabRaw : null
+  const pendingSubTab = isPendingNav ? pendingSubTabRaw : null
+
   const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'compose') => {
-    setTab(newTab)
-    if (newTab === 'send') setSendSubTab(newSubTab)
+    setPendingTabRaw(newTab)
+    if (newTab === 'send') setPendingSubTabRaw(newSubTab)
     window.history.pushState(null, '', tabToHref(newTab, newSubTab))
+    startNavTransition(() => {
+      setTab(newTab)
+      if (newTab === 'send') setSendSubTab(newSubTab)
+    })
   }, [])
   const setSendSubTabWithUrl = useCallback((sub: SendSubTab) => {
-    setSendSubTab(sub)
+    setPendingSubTabRaw(sub)
     window.history.pushState(null, '', tabToHref('send', sub))
+    startNavTransition(() => {
+      setSendSubTab(sub)
+    })
   }, [])
 
   const {
@@ -188,6 +210,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
     <div className="flex h-screen">
       <AdminSidebar
         tab={tab}
+        pendingTab={pendingTab}
         onTabChange={(t) => setTabWithUrl(t)}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -253,7 +276,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
 
       {/* --- Send Center: sub-nav -------------------------------- */}
       {tab === 'send' && (
-        <SendCenterNav active={sendSubTab} onChange={setSendSubTabWithUrl} />
+        <SendCenterNav active={sendSubTab} pending={pendingSubTab} onChange={setSendSubTabWithUrl} />
       )}
 
       {/* --- Send Center › Compose ------------------------------- */}
