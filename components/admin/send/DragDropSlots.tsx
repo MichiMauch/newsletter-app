@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { NewsletterBlock } from '@/lib/newsletter-blocks'
 import { formatDateShort, blockTypeLabels, type Post } from '../types'
 import TiptapEditor from '../../TiptapEditor'
+import PlaceholderHelp from '../../PlaceholderHelp'
 
 export function DraggablePostItem({ post, isUsed }: { post: Post; isUsed: boolean }) {
   return (
@@ -239,6 +240,7 @@ export function SlotCard({ block, index, posts, allBlocks, onUpdate, onRemove, o
             onChange={(html) => onUpdate({ ...block, content: html })}
             placeholder="Freitext eingeben…"
           />
+          <PlaceholderHelp />
           {allBlocks && (
             <button
               onClick={async () => {
