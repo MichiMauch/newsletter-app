@@ -177,3 +177,33 @@ export async function deleteSubscriber(id: number): Promise<void> {
   const db = getDb()
   await db.delete(newsletterSubscribers).where(eq(newsletterSubscribers.id, id))
 }
+
+// Loescht pending Subscriber, deren Anmeldung laenger als maxAgeDays zurueckliegt.
+// DSGVO Art. 5.1.e: Speicherbegrenzung — unverbindliche Eintraege duerfen nicht
+// dauerhaft aufbewahrt werden. batchLimit verhindert, dass ein grosser Backlog
+// beim ersten Lauf das DB-Lock zu lange haelt.
+export async function cleanupExpiredPendingSubscribers(
+  maxAgeDays = 14,
+  batchLimit = 1000,
+): Promise<{ deleted: number; batchHit: boolean }> {
+  const db = getDb()
+  const cutoffSql = `-${maxAgeDays} days`
+
+  const candidates = await db
+    .select({ id: newsletterSubscribers.id })
+    .from(newsletterSubscribers)
+    .where(and(
+      eq(newsletterSubscribers.status, 'pending'),
+      sql`datetime(${newsletterSubscribers.createdAt}) < datetime('now', ${cutoffSql})`,
+    ))
+    .limit(batchLimit)
+
+  if (candidates.length === 0) {
+    return { deleted: 0, batchHit: false }
+  }
+
+  const ids = candidates.map((c) => c.id)
+  await db.delete(newsletterSubscribers).where(inArray(newsletterSubscribers.id, ids))
+
+  return { deleted: ids.length, batchHit: ids.length >= batchLimit }
+}
