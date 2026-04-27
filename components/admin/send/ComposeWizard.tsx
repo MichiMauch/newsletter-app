@@ -15,7 +15,7 @@ import {
   type Post,
 } from '../types'
 import type { useComposeState } from '@/hooks/useComposeState'
-import WizardStepper from './WizardStepper'
+import WizardStepper, { type WizardStepIndex } from './WizardStepper'
 import TemplateCard from './TemplateCard'
 import TemplateBuilder from './TemplateBuilder'
 import EngagementPanel from './EngagementPanel'
@@ -43,12 +43,15 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
     abTestEnabled, setAbTestEnabled,
     subjectVariantB, setSubjectVariantB,
     generatingSubject,
+    generatingPreheader,
     audienceFilter, setAudienceFilter,
     sending,
     setShowPreview,
     customTemplates,
     drafts,
     setShowTestSend,
+    testEmail, setTestEmail,
+    handleTestSendConfirmed,
     useSto, setUseSto,
     scheduleMode, setScheduleMode,
     scheduleLocal, setScheduleLocal,
@@ -61,6 +64,7 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
     selectTemplate,
     goBackToPicker,
     generateSubject,
+    generatePreheader,
     updateBlock,
     removeBlock,
     moveBlock,
@@ -73,15 +77,18 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
     handleSendClick,
   } = compose
 
-  const stepIndex: 0 | 1 | 2 | 3 =
+  const stepIndex: WizardStepIndex =
     composeMode === 'pick-template' ? 0
       : composeStep === 'content' ? 1
-        : composeStep === 'audience' ? 2
-          : 3
-  const contentReady = subject.trim() !== '' && blocksAreValid(blocks)
+        : composeStep === 'subject' ? 2
+          : composeStep === 'test' ? 3
+            : composeStep === 'audience' ? 4
+              : 5
+  const contentReady = blocksAreValid(blocks)
+  const subjectReady = subject.trim() !== '' && (!abTestEnabled || subjectVariantB.trim() !== '')
   const audienceReady = true
 
-  const handleStepClick = (next: 0 | 1 | 2 | 3) => {
+  const handleStepClick = (next: WizardStepIndex) => {
     if (next === 0) {
       if (composeMode === 'fill-slots') {
         setConfirmAction({
@@ -96,8 +103,10 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
     }
     if (composeMode !== 'fill-slots') return
     if (next === 1) setComposeStep('content')
-    else if (next === 2) setComposeStep('audience')
-    else if (next === 3) setComposeStep('review')
+    else if (next === 2) setComposeStep('subject')
+    else if (next === 3) setComposeStep('test')
+    else if (next === 4) setComposeStep('audience')
+    else if (next === 5) setComposeStep('review')
   }
 
   return (
@@ -107,7 +116,21 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
           currentStep={stepIndex}
           onStepClick={handleStepClick}
           contentReady={contentReady}
+          subjectReady={subjectReady}
           audienceReady={audienceReady}
+          trailing={composeMode === 'fill-slots' && composeStep === 'content' ? (
+            <button
+              type="button"
+              onClick={() => setStudioMode(true)}
+              className="flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background-card)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:border-primary-400 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:text-primary-400"
+              title="Studio: vollflächiger Editor mit Live-Vorschau"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+              </svg>
+              Im Studio öffnen
+            </button>
+          ) : null}
         />
       )}
 
@@ -200,6 +223,7 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
         <FillSlotsView
           stepIndex={stepIndex}
           contentReady={contentReady}
+          subjectReady={subjectReady}
           composeStep={composeStep}
           setComposeStep={setComposeStep}
           selectedTemplateName={selectedTemplate.name}
@@ -212,7 +236,9 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
           subjectVariantB={subjectVariantB}
           setSubjectVariantB={setSubjectVariantB}
           generatingSubject={generatingSubject}
+          generatingPreheader={generatingPreheader}
           generateSubject={generateSubject}
+          generatePreheader={generatePreheader}
           blocks={blocks}
           posts={posts}
           updateBlock={updateBlock}
@@ -236,7 +262,9 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
           setScheduleLocal={setScheduleLocal}
           setShowPreview={setShowPreview}
           setShowTestSend={setShowTestSend}
-          setStudioMode={setStudioMode}
+          testEmail={testEmail}
+          setTestEmail={setTestEmail}
+          handleTestSendConfirmed={handleTestSendConfirmed}
           handleSaveDraft={handleSaveDraft}
           handleSendClick={handleSendClick}
           handleStepClick={handleStepClick}
@@ -249,8 +277,9 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
 }
 
 interface FillSlotsViewProps {
-  stepIndex: 0 | 1 | 2 | 3
+  stepIndex: WizardStepIndex
   contentReady: boolean
+  subjectReady: boolean
   composeStep: ComposeApi['composeStep']
   setComposeStep: ComposeApi['setComposeStep']
   selectedTemplateName: string
@@ -263,7 +292,9 @@ interface FillSlotsViewProps {
   subjectVariantB: string
   setSubjectVariantB: (s: string) => void
   generatingSubject: boolean
+  generatingPreheader: boolean
   generateSubject: (target?: 'a' | 'b') => void
+  generatePreheader: () => void
   blocks: ComposeApi['blocks']
   posts: Post[]
   updateBlock: ComposeApi['updateBlock']
@@ -287,10 +318,12 @@ interface FillSlotsViewProps {
   setScheduleLocal: (v: string) => void
   setShowPreview: (v: boolean) => void
   setShowTestSend: (v: boolean) => void
-  setStudioMode: (v: boolean) => void
+  testEmail: string
+  setTestEmail: (v: string) => void
+  handleTestSendConfirmed: () => void | Promise<void>
   handleSaveDraft: () => void
   handleSendClick: () => void
-  handleStepClick: (next: 0 | 1 | 2 | 3) => void
+  handleStepClick: (next: WizardStepIndex) => void
   toast: ReturnType<typeof useToast>
   loadData: () => void | Promise<void>
 }
@@ -298,16 +331,17 @@ interface FillSlotsViewProps {
 const PREHEADER_MAX = 200
 
 function FillSlotsView({
-  stepIndex, contentReady, composeStep, setComposeStep,
+  stepIndex, contentReady, subjectReady, composeStep, setComposeStep,
   selectedTemplateName, subject, setSubject, preheader, setPreheader,
   abTestEnabled, setAbTestEnabled, subjectVariantB, setSubjectVariantB,
-  generatingSubject, generateSubject,
+  generatingSubject, generatingPreheader, generateSubject, generatePreheader,
   blocks, posts, updateBlock, removeBlock, moveBlock, insertBlock,
   audienceFilter, setAudienceFilter,
   availableLists, selectedListId, setSelectedListId, selectedList,
   audienceCount, canSend, sending,
   useSto, setUseSto, scheduleMode, setScheduleMode, scheduleLocal, setScheduleLocal,
-  setShowPreview, setShowTestSend, setStudioMode,
+  setShowPreview, setShowTestSend,
+  testEmail, setTestEmail, handleTestSendConfirmed,
   handleSaveDraft, handleSendClick, handleStepClick,
   toast, loadData,
 }: FillSlotsViewProps) {
@@ -320,44 +354,47 @@ function FillSlotsView({
           Template: <span className="font-medium text-[var(--text)]">{selectedTemplateName}</span>
         </span>
         <span className="tabular-nums text-[var(--text-muted)]">
-          Schritt {stepIndex} von 3
+          Schritt {stepIndex} von 5
         </span>
       </div>
 
-      {composeStep === 'content' && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setStudioMode(true)}
-            className="flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background-card)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:border-primary-400 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:text-primary-400"
-            title="Studio: vollflächiger Editor mit Live-Vorschau"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-            </svg>
-            Im Studio öffnen
-          </button>
-        </div>
-      )}
-
-      {composeStep === 'content' && (
+      {composeStep === 'subject' && (
         <div className="space-y-4">
           <div>
-            <label className="mb-2 flex items-baseline justify-between text-sm font-medium text-[var(--text)]">
-              <span>{abTestEnabled ? 'Betreffzeile · Variante A' : 'Betreffzeile'}</span>
-            </label>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-[var(--text)]">Betreffzeile</span>
+              <label
+                className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-secondary)]"
+                title="A/B-Test: Empfänger werden gleichmässig auf zwei Betreffzeilen verteilt. Klickraten je Variante landen in der Historie. Nicht kombinierbar mit Send-Time-Optimization."
+              >
+                <input
+                  type="checkbox"
+                  checked={abTestEnabled}
+                  onChange={(e) => setAbTestEnabled(e.target.checked)}
+                  className="h-3.5 w-3.5 cursor-pointer"
+                />
+                <span>A/B-Test</span>
+                <svg className="h-3.5 w-3.5 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                </svg>
+              </label>
+            </div>
             <div className="flex gap-2">
+              {abTestEnabled && (
+                <span className="flex shrink-0 items-center justify-center rounded bg-[var(--bg-secondary)] px-2 text-xs font-bold text-[var(--text)]">A</span>
+              )}
               <input
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="Newsletter-Betreff…"
+                placeholder={abTestEnabled ? 'Betreff Variante A…' : 'Newsletter-Betreff…'}
                 className={inputCls + ' flex-1'}
               />
               <button
                 onClick={() => generateSubject('a')}
                 disabled={generatingSubject || blocks.length === 0}
                 className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+                title={abTestEnabled ? 'AI-Vorschlag für Variante A' : 'AI-Vorschlag für den Betreff'}
               >
                 {generatingSubject ? (
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -370,51 +407,32 @@ function FillSlotsView({
                 {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
               </button>
             </div>
-          </div>
-
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                checked={abTestEnabled}
-                onChange={(e) => setAbTestEnabled(e.target.checked)}
-                className="mt-0.5 h-4 w-4 cursor-pointer"
-              />
-              <span className="flex-1">
-                <span className="block text-sm font-medium text-[var(--text)]">A/B-Test (2 Varianten)</span>
-                <span className="block text-xs text-[var(--text-muted)]">
-                  Empfänger werden gleichmässig auf zwei Betreffzeilen verteilt. Klickraten je Variante landen in der Historie. Nicht kombinierbar mit STO oder geplantem Versand.
-                </span>
-              </span>
-            </label>
             {abTestEnabled && (
-              <div className="mt-3">
-                <label className="mb-2 block text-sm font-medium text-[var(--text)]">Betreffzeile · Variante B</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={subjectVariantB}
-                    onChange={(e) => setSubjectVariantB(e.target.value)}
-                    placeholder="Alternativer Betreff für Variante B…"
-                    className={inputCls + ' flex-1'}
-                  />
-                  <button
-                    onClick={() => generateSubject('b')}
-                    disabled={generatingSubject || blocks.length === 0}
-                    className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
-                    title="Alternativen Betreff von der AI generieren lassen"
-                  >
-                    {generatingSubject ? (
-                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : (
-                      <span>✨</span>
-                    )}
-                    {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
-                  </button>
-                </div>
+              <div className="mt-2 flex gap-2">
+                <span className="flex shrink-0 items-center justify-center rounded bg-[var(--bg-secondary)] px-2 text-xs font-bold text-[var(--text)]">B</span>
+                <input
+                  type="text"
+                  value={subjectVariantB}
+                  onChange={(e) => setSubjectVariantB(e.target.value)}
+                  placeholder="Betreff Variante B…"
+                  className={inputCls + ' flex-1'}
+                />
+                <button
+                  onClick={() => generateSubject('b')}
+                  disabled={generatingSubject || blocks.length === 0}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+                  title="AI-Vorschlag für Variante B"
+                >
+                  {generatingSubject ? (
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <span>✨</span>
+                  )}
+                  {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
+                </button>
               </div>
             )}
           </div>
@@ -424,15 +442,86 @@ function FillSlotsView({
               <span>Preheader <span className="text-xs font-normal text-[var(--text-muted)]">(optional)</span></span>
               <span className="text-[10px] tabular-nums text-[var(--text-muted)]">{preheader.length}/{PREHEADER_MAX}</span>
             </label>
-            <input
-              type="text"
-              value={preheader}
-              onChange={(e) => setPreheader(e.target.value.slice(0, PREHEADER_MAX))}
-              maxLength={PREHEADER_MAX}
-              placeholder="Vorschauzeile in der Inbox — die ersten ~110 Zeichen sind in Gmail/Apple Mail sichtbar."
-              className={inputCls}
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={preheader}
+                onChange={(e) => setPreheader(e.target.value.slice(0, PREHEADER_MAX))}
+                maxLength={PREHEADER_MAX}
+                placeholder="Vorschauzeile in der Inbox — die ersten ~110 Zeichen sind in Gmail/Apple Mail sichtbar."
+                className={inputCls + ' flex-1'}
+              />
+              <button
+                type="button"
+                onClick={() => generatePreheader()}
+                disabled={generatingPreheader || blocks.length === 0}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+                title="AI-Vorschlag für den Preheader (basierend auf Betreff und Artikeln)"
+              >
+                {generatingPreheader ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <span>✨</span>
+                )}
+                {generatingPreheader ? 'Generiere…' : 'Mit AI ausfüllen'}
+              </button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {composeStep === 'test' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--background-card)] p-4">
+            <h4 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Vorschau</h4>
+            <p className="mb-3 text-sm text-[var(--text-secondary)]">
+              Newsletter im Browser ansehen — so wie er später in der Inbox aussieht.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowPreview(true)}
+              disabled={!blocksAreValid(blocks)}
+              className="rounded-full border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+            >
+              Vorschau öffnen
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/20">
+            <h4 className="mb-1 text-sm font-medium text-amber-800 dark:text-amber-200">Test-Newsletter senden</h4>
+            <p className="mb-3 text-xs text-amber-700/80 dark:text-amber-300/80">
+              Schickt &laquo;[TEST] {subject || '…'}&raquo; an die angegebene Adresse — Tracking ist deaktiviert, Empfänger-Liste bleibt unberührt.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && testEmail.trim() && !sending && subject.trim() && blocksAreValid(blocks)) {
+                    handleTestSendConfirmed()
+                  }
+                }}
+                placeholder="test@example.com"
+                className={inputCls + ' flex-1'}
+              />
+              <button
+                type="button"
+                onClick={() => handleTestSendConfirmed()}
+                disabled={sending || !testEmail.trim() || !subject.trim() || !blocksAreValid(blocks)}
+                className="shrink-0 rounded-full bg-amber-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-50"
+              >
+                {sending ? 'Wird gesendet…' : 'Test senden'}
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-[var(--text-muted)]">
+            Tipp: Zur Inbox-Prüfung in mehreren Mail-Clients schicke den Test an verschiedene Adressen (Gmail, Apple Mail, Outlook).
+          </p>
         </div>
       )}
 
@@ -674,7 +763,9 @@ function FillSlotsView({
           type="button"
           onClick={() => {
             if (composeStep === 'content') handleStepClick(0)
-            else if (composeStep === 'audience') setComposeStep('content')
+            else if (composeStep === 'subject') setComposeStep('content')
+            else if (composeStep === 'test') setComposeStep('subject')
+            else if (composeStep === 'audience') setComposeStep('test')
             else setComposeStep('audience')
           }}
           className="rounded-full border border-[var(--border)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
@@ -687,9 +778,19 @@ function FillSlotsView({
             onClick={() => {
               if (composeStep === 'content') {
                 if (!contentReady) {
-                  toast.error('Betreff und mindestens ein gültiger Block sind erforderlich.')
+                  toast.error('Mindestens ein gültiger Block ist erforderlich.')
                   return
                 }
+                setComposeStep('subject')
+              } else if (composeStep === 'subject') {
+                if (!subjectReady) {
+                  toast.error(abTestEnabled
+                    ? 'Beide Betreffzeilen (A und B) sind erforderlich.'
+                    : 'Eine Betreffzeile ist erforderlich.')
+                  return
+                }
+                setComposeStep('test')
+              } else if (composeStep === 'test') {
                 setComposeStep('audience')
               } else {
                 setComposeStep('review')

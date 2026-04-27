@@ -159,7 +159,7 @@ export default function NewsletterStudio({
               className="h-3.5 w-3.5 cursor-pointer"
             />
             <span>A/B-Test (2 Varianten)</span>
-            <span className="text-[var(--text-muted)]">— gleichmässige Verteilung, nicht mit STO/Schedule kombinierbar</span>
+            <span className="text-[var(--text-muted)]">— gleichmässige Verteilung, nicht mit STO kombinierbar</span>
           </label>
         </div>
 

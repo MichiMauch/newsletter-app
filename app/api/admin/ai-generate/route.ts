@@ -4,11 +4,23 @@ import { adminSettings } from '@/lib/schema'
 import { eq } from 'drizzle-orm'
 import {
   DEFAULT_INTRO_PROMPT,
+  DEFAULT_PREHEADER_PROMPT,
   DEFAULT_SUBJECT_PROMPT,
   buildPrompt,
   type AiPostInput,
 } from '@/lib/ai-prompts'
 import Anthropic from '@anthropic-ai/sdk'
+
+const PROMPT_KEYS = {
+  subject: 'subject_prompt',
+  intro: 'intro_prompt',
+  preheader: 'preheader_prompt',
+} as const
+const DEFAULT_PROMPTS = {
+  subject: DEFAULT_SUBJECT_PROMPT,
+  intro: DEFAULT_INTRO_PROMPT,
+  preheader: DEFAULT_PREHEADER_PROMPT,
+} as const
 
 export async function POST(request: Request) {
   if (!(await isAuthenticated(request))) {
@@ -21,27 +33,28 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { type, posts } = body as {
-    type: 'intro' | 'subject'
+  const { type, posts, subject } = body as {
+    type: 'intro' | 'subject' | 'preheader'
     posts: AiPostInput[]
+    subject?: string
   }
 
   if (!posts || posts.length === 0) {
     return Response.json({ error: 'Keine Artikel angegeben.' }, { status: 400 })
   }
-
-  const settingsKey = type === 'subject' ? 'subject_prompt' : 'intro_prompt'
-  const fallback = type === 'subject' ? DEFAULT_SUBJECT_PROMPT : DEFAULT_INTRO_PROMPT
+  if (type !== 'intro' && type !== 'subject' && type !== 'preheader') {
+    return Response.json({ error: 'Unbekannter type.' }, { status: 400 })
+  }
 
   const db = getDb()
   const row = await db
     .select()
     .from(adminSettings)
-    .where(eq(adminSettings.key, settingsKey))
+    .where(eq(adminSettings.key, PROMPT_KEYS[type]))
     .get()
-  const template = row?.value?.trim() ? row.value : fallback
+  const template = row?.value?.trim() ? row.value : DEFAULT_PROMPTS[type]
 
-  const prompt = buildPrompt(template, posts)
+  const prompt = buildPrompt(template, posts, { subject })
 
   try {
     const client = new Anthropic({ apiKey })
@@ -59,6 +72,12 @@ export async function POST(request: Request) {
         return Response.json({ error: 'AI-Antwort konnte nicht ausgewertet werden.' }, { status: 500 })
       }
       return Response.json({ subjects })
+    }
+
+    if (type === 'preheader') {
+      // Strip surrounding quotes/markdown the model sometimes adds
+      const clean = text.replace(/^["'`]+|["'`]+$/g, '').replace(/^```[\s\S]*?\n|\n```$/g, '').trim()
+      return Response.json({ text: clean.slice(0, 200) })
     }
 
     return Response.json({ text })

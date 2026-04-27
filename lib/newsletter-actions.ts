@@ -310,8 +310,8 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
     return jsonError('Ungültige A/B-Varianten (2-5 Einträge mit "label" und "subject").', 400)
   }
 
-  if (variants && (useSto || scheduledFor)) {
-    return jsonError('A/B-Test mit Send-Time-Optimization oder geplantem Versand ist (noch) nicht unterstützt.', 400)
+  if (variants && useSto) {
+    return jsonError('A/B-Test mit Send-Time-Optimization ist (noch) nicht unterstützt.', 400)
   }
 
   if (!subject && !variants) {
@@ -354,42 +354,68 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
   const firstSlug = slugs.size > 0 ? [...slugs][0] : 'multi-block'
   const firstPost = postsMap[firstSlug]
 
-  // ─── Geplanter Versand (fixe Zeit oder STO ab geplantem Zeitpunkt) ───
-  // variants are rejected above when scheduled, so `subject` is guaranteed here.
+  // ─── Geplanter Versand (fixe Zeit, STO ab Zeitpunkt, oder A/B zur Zeit) ───
   const scheduledForDate = parseScheduledFor(scheduledFor)
   if (scheduledForDate) {
-    if (!subject) {
+    if (!subject && !variants) {
       return jsonError('subject ist für geplanten Versand erforderlich.', 400)
     }
     const scheduledIso = scheduledForDate.toISOString()
+    const parentSubject = variants
+      ? `A/B: ${variants.map((v) => v.label).join(' | ')}`
+      : subject!
     const sendId = await recordNewsletterSend(SITE_ID, {
       post_slug: firstSlug,
-      post_title: firstPost?.title ?? subject,
-      subject,
+      post_title: firstPost?.title ?? parentSubject,
+      subject: parentSubject,
       preheader,
       recipient_count: subscribers.length,
       blocks_json: JSON.stringify(blocks),
       scheduled_for: scheduledIso,
       status: 'scheduled',
     })
-    await recordNewsletterRecipientsBatch(
-      subscribers.map((s) => ({ send_id: sendId, email: s.email, resend_email_id: null })),
-    )
 
     let enqueued: { enqueued: number; earliest?: string; latest?: string }
-    if (useSto) {
-      // STO ab geplantem Zeitpunkt: Empfänger mit Profil bekommen Mail zur
-      // persönlichen Lieblingszeit nach scheduledForDate. Ohne Profil: genau scheduledIso.
-      enqueued = await enqueueScheduledSends(SITE_ID, sendId, subscribers, scheduledForDate)
+    if (variants) {
+      const assigned = assignVariants(subscribers, variants)
+      const counts = new Map<string, number>()
+      for (const a of assigned) counts.set(a.variant.label, (counts.get(a.variant.label) ?? 0) + 1)
+      await recordSendVariants(
+        sendId,
+        variants.map((v) => ({ ...v, recipient_count: counts.get(v.label) ?? 0 })),
+      )
+      await recordNewsletterRecipientsBatch(
+        assigned.map((a) => ({
+          send_id: sendId,
+          email: a.email,
+          resend_email_id: null,
+          variant_label: a.variant.label,
+        })),
+      )
+      enqueued = await enqueueUniformSchedule(
+        SITE_ID,
+        sendId,
+        assigned.map((a) => ({ email: a.email, token: a.token, variantLabel: a.variant.label })),
+        scheduledIso,
+      )
     } else {
-      enqueued = await enqueueUniformSchedule(SITE_ID, sendId, subscribers, scheduledIso)
+      await recordNewsletterRecipientsBatch(
+        subscribers.map((s) => ({ send_id: sendId, email: s.email, resend_email_id: null })),
+      )
+      if (useSto) {
+        // STO ab geplantem Zeitpunkt: Empfänger mit Profil bekommen Mail zur
+        // persönlichen Lieblingszeit nach scheduledForDate. Ohne Profil: genau scheduledIso.
+        enqueued = await enqueueScheduledSends(SITE_ID, sendId, subscribers, scheduledForDate)
+      } else {
+        enqueued = await enqueueUniformSchedule(SITE_ID, sendId, subscribers, scheduledIso)
+      }
     }
 
     // Innerhalb des 1h-Push-Horizons: direkt an Resend übergeben statt auf Cron warten.
     const pushResult = await pushDueSendsToResend()
     return jsonOk({
       ok: true,
-      mode: useSto ? 'scheduled+sto' : 'scheduled',
+      mode: variants ? 'scheduled+ab' : useSto ? 'scheduled+sto' : 'scheduled',
       sendId,
       scheduledFor: scheduledIso,
       enqueued: enqueued.enqueued,

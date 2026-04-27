@@ -32,7 +32,7 @@ import type { useToast } from '@/components/ui/ToastProvider'
 
 type ToastApi = ReturnType<typeof useToast>
 type ComposeMode = 'pick-template' | 'fill-slots' | 'build-template'
-type ComposeStep = 'content' | 'audience' | 'review'
+type ComposeStep = 'content' | 'subject' | 'test' | 'audience' | 'review'
 
 interface UseComposeStateInput {
   posts: Post[]
@@ -68,6 +68,7 @@ export function useComposeState({
   const [abTestEnabled, setAbTestEnabled] = useState(false)
   const [subjectVariantB, setSubjectVariantB] = useState('')
   const [generatingSubject, setGeneratingSubject] = useState(false)
+  const [generatingPreheader, setGeneratingPreheader] = useState(false)
   const [subjectOptions, setSubjectOptions] = useState<string[]>([])
   const [showSubjectPicker, setShowSubjectPicker] = useState(false)
   const [subjectPickerTarget, setSubjectPickerTarget] = useState<'a' | 'b'>('a')
@@ -106,7 +107,7 @@ export function useComposeState({
   const abTestActive = abTestEnabled && subjectVariantB.trim() !== ''
   const canSend = subject.trim() !== '' && blocksAreValid(blocks) && audienceCount > 0
     && (!abTestEnabled || subjectVariantB.trim() !== '')
-    && (!abTestEnabled || (scheduleMode !== 'scheduled' && !useSto))
+    && (!abTestEnabled || !useSto)
     && (!abTestEnabled || audienceCount >= 2)
   const usedSlugsKey = useMemo(
     () => [...new Set([...getUsedSlugs(blocks)])].sort().join('|'),
@@ -239,6 +240,48 @@ export function useComposeState({
     }
   }, [blocks, posts, toast])
 
+  const generatePreheader = useCallback(async () => {
+    setGeneratingPreheader(true)
+    try {
+      const bySlug = new Map<string, Post>()
+      for (const p of posts) bySlug.set(p.slug, p)
+      const postData: Array<{ title: string; summary: string }> = []
+      for (const block of blocks) {
+        if (block.type === 'hero' && block.slug) {
+          const p = bySlug.get(block.slug)
+          if (p) postData.push({ title: p.title, summary: p.summary })
+        }
+        if (block.type === 'link-list') {
+          for (const s of block.slugs) {
+            const p = bySlug.get(s)
+            if (p) postData.push({ title: p.title, summary: p.summary })
+          }
+        }
+      }
+      if (postData.length === 0) {
+        toast.error('Keine Artikel für AI-Generierung vorhanden.')
+        return
+      }
+      const res = await fetch('/api/admin/ai-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'preheader', posts: postData, subject: subject.trim() }),
+      })
+      if (!res.ok) throw new Error('Fehler beim Generieren')
+      const data = await res.json()
+      if (typeof data.text === 'string' && data.text.trim()) {
+        setPreheader(data.text.trim().slice(0, 200))
+      } else {
+        toast.error('AI-Generierung fehlgeschlagen.')
+      }
+    } catch (err) {
+      console.error('[generatePreheader]', err)
+      toast.error('AI-Generierung fehlgeschlagen.')
+    } finally {
+      setGeneratingPreheader(false)
+    }
+  }, [blocks, posts, subject, toast])
+
   // ─── Custom templates ───
   const handleSaveCustomTemplate = useCallback((template: NewsletterTemplate) => {
     setCustomTemplates((prev) => {
@@ -352,6 +395,12 @@ export function useComposeState({
       const listIdPayload = selectedListId ?? undefined
       const scheduledDate = scheduleMode === 'scheduled' ? parseScheduleLocal(scheduleLocal) : null
       if (scheduledDate) {
+        const variantsPayload = abTestActive
+          ? [
+              { label: 'A', subject: subject.trim() },
+              { label: 'B', subject: subjectVariantB.trim() },
+            ]
+          : undefined
         const res = await fetch('/api/admin/newsletter', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -361,6 +410,7 @@ export function useComposeState({
             listId: listIdPayload,
             scheduledFor: scheduledDate.toISOString(),
             useSto: useSto || undefined,
+            variants: variantsPayload,
           }),
         })
         const data = await res.json()
@@ -369,6 +419,8 @@ export function useComposeState({
         if (useSto) {
           const latest = data.latest ? new Date(data.latest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
           toast.success(`Newsletter geplant ab ${when} mit STO (${data.enqueued} Empfänger, letzter spätestens ${latest}).`)
+        } else if (variantsPayload) {
+          toast.success(`A/B-Test geplant für ${when} (${data.enqueued} Empfänger, gleichmässig auf A/B verteilt).`)
         } else {
           toast.success(`Newsletter geplant für ${when} (${data.enqueued} Empfänger).`)
         }
@@ -434,6 +486,7 @@ export function useComposeState({
     abTestActive,
     subjectPickerTarget,
     generatingSubject,
+    generatingPreheader,
     subjectOptions,
     showSubjectPicker, setShowSubjectPicker,
     audienceFilter, setAudienceFilter,
@@ -460,6 +513,7 @@ export function useComposeState({
     selectTemplate,
     goBackToPicker,
     generateSubject,
+    generatePreheader,
     updateBlock,
     removeBlock,
     moveBlock,
