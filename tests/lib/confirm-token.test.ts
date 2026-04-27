@@ -31,8 +31,13 @@ describe('createConfirmToken / verifyConfirmToken', () => {
 
   it('rejects a token whose signature was tampered with', () => {
     const token = createConfirmToken('kokomo', 'tampered@example.com')
-    // Flip the last character (which lives in the signature segment after b64url encoding)
-    const flipped = token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A')
+    // Replace the last char with a deterministic *different* base64url char.
+    // (Flipping to a fixed letter previously caused a flake when the token
+    // happened to already end with that letter.)
+    const last = token[token.length - 1]
+    const replacement = last === 'A' ? 'B' : last === 'a' ? 'b' : 'A'
+    const flipped = token.slice(0, -1) + replacement
+    expect(flipped).not.toBe(token)
     const result = verifyConfirmToken(flipped)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toBe('invalid_signature')
