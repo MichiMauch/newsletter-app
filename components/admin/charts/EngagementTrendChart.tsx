@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { SendTrend } from '../types'
+import { parseDbDate } from '../types'
 
 export default function EngagementTrendChart({ trends }: { trends: SendTrend[] }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
@@ -37,7 +38,7 @@ export default function EngagementTrendChart({ trends }: { trends: SendTrend[] }
   }
 
   const hoverData = hoverIdx !== null ? trends[hoverIdx] : null
-  const hoverDate = hoverData ? new Date(hoverData.sent_at).toLocaleDateString('de-CH', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+  const hoverDate = hoverData ? parseDbDate(hoverData.sent_at).toLocaleDateString('de-CH', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
 
   return (
     <div className="glass-card rounded-xl p-6 shadow-lg">
@@ -78,7 +79,7 @@ export default function EngagementTrendChart({ trends }: { trends: SendTrend[] }
           {trends.map((t, i) => {
             const showLabel = trends.length <= 12 || i % Math.ceil(trends.length / 10) === 0 || i === trends.length - 1
             if (!showLabel) return null
-            const d = new Date(t.sent_at)
+            const d = parseDbDate(t.sent_at)
             const label = d.toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric' })
             return <text key={t.id} x={toX(i)} y={H - 6} textAnchor="middle" fontSize="10" fill="var(--color-text-secondary, #888)" opacity="0.6">{label}</text>
           })}
