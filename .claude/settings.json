@@ -2,13 +2,35 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
         "hooks": [
           {
-            "type": "command",
-            "command": "cd /Users/michaelmauch/Documents/Development/newsletter-app && output=$(npx tsc --noEmit 2>&1); if [ -n \"$output\" ]; then echo \"TypeScript errors:\"; echo \"$output\" | head -20; fi"
+            "command": "cd /Users/michaelmauch/Documents/Development/newsletter-app \u0026\u0026 output=$(npx tsc --noEmit 2\u003e\u00261); if [ -n \"$output\" ]; then echo \"TypeScript errors:\"; echo \"$output\" | head -20; fi",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
       }
     ]
   }

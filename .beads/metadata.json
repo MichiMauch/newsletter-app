@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "newsletter_app",
+  "project_id": "3b27c04c-99d1-44df-9bbc-acc67f07a0f8"
+}
