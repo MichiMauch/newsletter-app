@@ -4,6 +4,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
 import { useEffect, useState } from 'react'
+import PlaceholderMenu from './PlaceholderMenu'
 
 interface TiptapEditorProps {
   content: string
@@ -164,6 +165,11 @@ export default function TiptapEditor({ content, onChange, placeholder }: TiptapE
         >
           —
         </ToolbarButton>
+        <div className="mx-1 w-px bg-[var(--border)]" />
+        <PlaceholderMenu
+          variant="toolbar"
+          onInsert={(syntax) => editor.chain().focus().insertContent(syntax).run()}
+        />
       </div>
 
       {/* Editor */}

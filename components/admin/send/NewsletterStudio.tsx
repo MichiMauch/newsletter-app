@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
 import { blocksAreValid, getUsedSlugs } from '@/lib/newsletter-block-helpers'
 import type { SiteConfig } from '@/lib/site-config'
@@ -8,6 +8,29 @@ import type { NewsletterBlock, PostRef, UserAuthoredBlockType } from '@/lib/news
 import type { Post } from '../types'
 import { DraggablePostItem, SlotCard } from './DragDropSlots'
 import InsertToolbar from './InsertToolbar'
+import PlaceholderMenu from '../../PlaceholderMenu'
+
+// Inserts `text` at the input's current cursor position and re-focuses it
+// with the cursor right after the inserted snippet. Used to drop placeholders
+// like {{firstName}} into the subject / preheader inputs from the menu.
+function insertAtCursor(
+  inputRef: React.RefObject<HTMLInputElement | null>,
+  currentValue: string,
+  onChange: (value: string) => void,
+  text: string,
+) {
+  const el = inputRef.current
+  const start = el?.selectionStart ?? currentValue.length
+  const end = el?.selectionEnd ?? currentValue.length
+  const next = currentValue.slice(0, start) + text + currentValue.slice(end)
+  onChange(next)
+  requestAnimationFrame(() => {
+    if (!el) return
+    el.focus()
+    const pos = start + text.length
+    try { el.setSelectionRange(pos, pos) } catch { /* unsupported on some types */ }
+  })
+}
 
 interface NewsletterStudioProps {
   subject: string
@@ -58,6 +81,10 @@ export default function NewsletterStudio({
   onViewportChange,
   onExit,
 }: NewsletterStudioProps) {
+  const subjectARef = useRef<HTMLInputElement | null>(null)
+  const subjectBRef = useRef<HTMLInputElement | null>(null)
+  const preheaderRef = useRef<HTMLInputElement | null>(null)
+
   const usedSlugs = getUsedSlugs(blocks)
   const html = blocksAreValid(blocks)
     ? buildMultiBlockNewsletterHtml(siteConfig, blocks, postsMap, '#', preheader || null)
@@ -82,11 +109,16 @@ export default function NewsletterStudio({
               <span className="shrink-0 rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text)]">A</span>
             )}
             <input
+              ref={subjectARef}
               type="text"
               value={subject}
               onChange={(e) => onSubjectChange(e.target.value)}
               placeholder={abTestEnabled ? 'Betreff Variante A…' : 'Newsletter-Betreff…'}
               className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+            />
+            <PlaceholderMenu
+              variant="chip"
+              onInsert={(syntax) => insertAtCursor(subjectARef, subject, onSubjectChange, syntax)}
             />
             <button
               type="button"
@@ -110,11 +142,16 @@ export default function NewsletterStudio({
             <div className="flex items-center gap-2">
               <span className="shrink-0 rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text)]">B</span>
               <input
+                ref={subjectBRef}
                 type="text"
                 value={subjectVariantB}
                 onChange={(e) => onSubjectVariantBChange(e.target.value)}
                 placeholder="Betreff Variante B…"
                 className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+              />
+              <PlaceholderMenu
+                variant="chip"
+                onInsert={(syntax) => insertAtCursor(subjectBRef, subjectVariantB, onSubjectVariantBChange, syntax)}
               />
               <button
                 type="button"
@@ -135,21 +172,28 @@ export default function NewsletterStudio({
               </button>
             </div>
           )}
-          <div className="relative">
-            <input
-              type="text"
-              value={preheader}
-              onChange={(e) => onPreheaderChange(e.target.value.slice(0, PREHEADER_MAX))}
-              placeholder="Preheader (Vorschauzeile in der Inbox)…"
-              maxLength={PREHEADER_MAX}
-              className="w-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 pr-12 text-xs text-[var(--text-secondary)] outline-none focus:border-primary-400"
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                ref={preheaderRef}
+                type="text"
+                value={preheader}
+                onChange={(e) => onPreheaderChange(e.target.value.slice(0, PREHEADER_MAX))}
+                placeholder="Preheader (Vorschauzeile in der Inbox)…"
+                maxLength={PREHEADER_MAX}
+                className="w-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 pr-12 text-xs text-[var(--text-secondary)] outline-none focus:border-primary-400"
+              />
+              <span
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums text-[var(--text-muted)]"
+                title={`Empfohlen: ≤ 110 Zeichen (Gmail/Apple Mail Vorschau). Maximum: ${PREHEADER_MAX}.`}
+              >
+                {preheader.length}/{PREHEADER_MAX}
+              </span>
+            </div>
+            <PlaceholderMenu
+              variant="chip"
+              onInsert={(syntax) => insertAtCursor(preheaderRef, preheader, onPreheaderChange, syntax)}
             />
-            <span
-              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums text-[var(--text-muted)]"
-              title={`Empfohlen: ≤ 110 Zeichen (Gmail/Apple Mail Vorschau). Maximum: ${PREHEADER_MAX}.`}
-            >
-              {preheader.length}/{PREHEADER_MAX}
-            </span>
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
             <input
