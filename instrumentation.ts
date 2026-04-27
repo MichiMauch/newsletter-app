@@ -1,14 +1,18 @@
 import * as Sentry from '@sentry/nextjs'
 import { sentryConfig } from './sentry.shared'
-import { assertEnvOrExit } from './lib/env-check'
 
 export async function register() {
   // Validate critical env vars *before* anything else — a deploy missing e.g.
   // CONFIRM_TOKEN_SECRET would otherwise come up apparently fine and silently
   // fail every confirmation send. exit(1) makes Coolify mark the deploy as
   // failed so the operator notices in seconds, not after the first signup.
-  // Edge runtime can't process.exit, so only enforce on node.
+  //
+  // Dynamic import (not top-level) keeps lib/env-check — which calls
+  // process.exit — out of the Edge runtime bundle entirely. A static import
+  // here triggers the "Node.js API used in Edge Runtime" warning even
+  // though the call site is guarded.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { assertEnvOrExit } = await import('./lib/env-check')
     assertEnvOrExit()
   }
 
