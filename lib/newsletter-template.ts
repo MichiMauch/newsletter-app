@@ -191,6 +191,7 @@ export function buildMultiBlockNewsletterHtml(
   blocks: NewsletterBlock[],
   postsMap: Record<string, PostRef>,
   unsubscribeUrl: string,
+  preheader: string | null = null,
 ): string {
   const renderedBlocks = blocks
     .map((block) => {
@@ -214,8 +215,12 @@ export function buildMultiBlockNewsletterHtml(
   const firstBlockIsHero = blocks.length > 0 && blocks[0].type === 'hero'
   const contentPadding = firstBlockIsHero ? 'padding: 0;' : 'padding: 24px 0 0;'
   const hostname = new URL(site.site_url).hostname
+  const preheaderHtml = preheader && preheader.trim()
+    ? `<div style="display:none;overflow:hidden;line-height:1px;opacity:0;max-height:0;max-width:0;mso-hide:all;">${escapeHtml(preheader.trim())}</div>`
+    : ''
 
   return `
+    ${preheaderHtml}
     <table width="600" cellpadding="0" cellspacing="0" border="0" align="center" style="table-layout: fixed; font-family: '${s.fontFamily}', system-ui, -apple-system, sans-serif; max-width: 600px; width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e5e7eb;">
       <tr>
         <td style="background: linear-gradient(135deg, ${s.primaryColor}, ${s.gradientEnd}); padding: 14px 32px; text-align: center;">

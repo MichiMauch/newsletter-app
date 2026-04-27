@@ -6,6 +6,7 @@ import SubscriberGrowthChart from './charts/SubscriberGrowthChart'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
 import type { SiteConfig } from '@/lib/site-config'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
+import type { VariantStats } from '@/lib/newsletter-variants'
 import type {
   NewsletterSend, Post, SendTrend, SubscriberGrowth,
   OverallStatsData, NewsletterRecipientRow, LinkClickRow,
@@ -43,6 +44,7 @@ export default function HistoryTab({
   const [sendRecipients, setSendRecipients] = useState<NewsletterRecipientRow[]>([])
   const [sendLinkClicks, setSendLinkClicks] = useState<LinkClickRow[]>([])
   const [sendBlocksJson, setSendBlocksJson] = useState<string | null>(null)
+  const [sendVariants, setSendVariants] = useState<VariantStats[]>([])
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryConfirm, setRetryConfirm] = useState(false)
@@ -90,6 +92,7 @@ export default function HistoryTab({
       setSendRecipients(json.sendDetail?.recipients ?? [])
       setSendLinkClicks(json.sendDetail?.linkClicks ?? [])
       setSendBlocksJson(json.sendDetail?.blocksJson ?? null)
+      setSendVariants(json.sendDetail?.variants ?? [])
     } catch (err) {
       console.error('Failed to load send detail:', err)
     }
@@ -150,7 +153,7 @@ export default function HistoryTab({
       {/* Detail View */}
       {selectedSend ? (
         <div className="space-y-6">
-          <button onClick={() => { setSelectedSend(null); setSendRecipients([]); setSendLinkClicks([]); setSendBlocksJson(null) }} className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
+          <button onClick={() => { setSelectedSend(null); setSendRecipients([]); setSendLinkClicks([]); setSendBlocksJson(null); setSendVariants([]) }} className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             <span>←</span> Zurück zur Übersicht
           </button>
 
@@ -195,6 +198,68 @@ export default function HistoryTab({
                   <div className="mt-1 text-xs text-[var(--text-secondary)]">Bounced</div>
                 </div>
               </div>
+
+              {/* A/B Variants */}
+              {sendVariants.length > 0 && (() => {
+                const ctr = (v: VariantStats) =>
+                  v.recipient_count > 0 ? v.clicked_count / v.recipient_count : 0
+                const winnerLabel = sendVariants.reduce<string | null>(
+                  (best, v) => {
+                    if (!best) return v.label
+                    const bestRow = sendVariants.find((x) => x.label === best)!
+                    return ctr(v) > ctr(bestRow) ? v.label : best
+                  },
+                  null,
+                )
+                return (
+                  <div className="glass-card overflow-hidden rounded-xl">
+                    <div className="border-b border-[var(--border)] px-5 py-3">
+                      <h4 className="font-medium text-[var(--text)]">A/B-Test · Varianten</h4>
+                    </div>
+                    <div className="divide-y divide-[var(--border)]">
+                      {sendVariants.map((v) => {
+                        const rate = v.recipient_count > 0
+                          ? Math.round((v.clicked_count / v.recipient_count) * 100)
+                          : 0
+                        const isWinner = v.label === winnerLabel && (selectedSend.clicked_count ?? 0) > 0
+                        return (
+                          <div key={v.label} className="px-5 py-3">
+                            <div className="flex items-baseline justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-baseline gap-2">
+                                  <span className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-bold tabular-nums text-[var(--text)]">
+                                    {v.label}
+                                  </span>
+                                  {isWinner && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                      Sieger (CTR)
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1 truncate text-sm text-[var(--text)]" title={v.subject}>
+                                  {v.subject}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-lg font-bold tabular-nums text-[var(--text)]">{rate}%</div>
+                                <div className="text-[10px] text-[var(--text-muted)]">
+                                  {v.clicked_count} / {v.recipient_count} Klicks
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--bg-secondary)]">
+                              <div
+                                className={`h-full ${isWinner ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                                style={{ width: `${rate}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Link Performance */}
               {sendLinkClicks.length > 0 && (

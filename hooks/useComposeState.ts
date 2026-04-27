@@ -64,9 +64,13 @@ export function useComposeState({
   const [selectedTemplate, setSelectedTemplate] = useState<NewsletterTemplate | null>(null)
   const [blocks, setBlocks] = useState<NewsletterBlock[]>([])
   const [subject, setSubject] = useState('')
+  const [preheader, setPreheader] = useState('')
+  const [abTestEnabled, setAbTestEnabled] = useState(false)
+  const [subjectVariantB, setSubjectVariantB] = useState('')
   const [generatingSubject, setGeneratingSubject] = useState(false)
   const [subjectOptions, setSubjectOptions] = useState<string[]>([])
   const [showSubjectPicker, setShowSubjectPicker] = useState(false)
+  const [subjectPickerTarget, setSubjectPickerTarget] = useState<'a' | 'b'>('a')
   const [audienceFilter, setAudienceFilter] = useState<AudienceFilter | null>(null)
   const [sending, setSending] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
@@ -99,7 +103,11 @@ export function useComposeState({
   const audienceCount = selectedList
     ? selectedList.member_count
     : (audienceFilter ? audienceFilter.count : confirmedCount)
+  const abTestActive = abTestEnabled && subjectVariantB.trim() !== ''
   const canSend = subject.trim() !== '' && blocksAreValid(blocks) && audienceCount > 0
+    && (!abTestEnabled || subjectVariantB.trim() !== '')
+    && (!abTestEnabled || (scheduleMode !== 'scheduled' && !useSto))
+    && (!abTestEnabled || audienceCount >= 2)
   const usedSlugsKey = useMemo(
     () => [...new Set([...getUsedSlugs(blocks)])].sort().join('|'),
     [blocks],
@@ -162,6 +170,9 @@ export function useComposeState({
     setSelectedTemplate(template)
     setBlocks(blocksFromTemplate(template))
     setSubject('')
+    setPreheader('')
+    setAbTestEnabled(false)
+    setSubjectVariantB('')
     setComposeMode('fill-slots')
     setComposeStep('content')
   }, [])
@@ -170,12 +181,16 @@ export function useComposeState({
     setSelectedTemplate(null)
     setBlocks([])
     setSubject('')
+    setPreheader('')
+    setAbTestEnabled(false)
+    setSubjectVariantB('')
     setComposeMode('pick-template')
     setComposeStep('content')
   }, [])
 
   // ─── AI Subject generation ───
-  const generateSubject = useCallback(async () => {
+  const generateSubject = useCallback(async (target: 'a' | 'b' = 'a') => {
+    setSubjectPickerTarget(target)
     setGeneratingSubject(true)
     setSubjectOptions([])
     setShowSubjectPicker(true)
@@ -255,6 +270,7 @@ export function useComposeState({
     const draft: NewsletterDraft = {
       id: crypto.randomUUID(),
       subject,
+      preheader: preheader || undefined,
       blocks,
       templateId: selectedTemplate?.id ?? null,
       savedAt: new Date().toISOString(),
@@ -265,13 +281,14 @@ export function useComposeState({
       return updated
     })
     toast.success('Entwurf gespeichert.')
-  }, [subject, blocks, selectedTemplate, toast])
+  }, [subject, preheader, blocks, selectedTemplate, toast])
 
   const handleLoadDraft = useCallback((draft: NewsletterDraft) => {
     const template = [...BUILT_IN_TEMPLATES, ...customTemplates].find((t) => t.id === draft.templateId) ?? BUILT_IN_TEMPLATES[0]
     setSelectedTemplate(template)
     setBlocks(draft.blocks)
     setSubject(draft.subject)
+    setPreheader(draft.preheader ?? '')
     setComposeMode('fill-slots')
     setComposeStep('content')
   }, [customTemplates])
@@ -310,7 +327,7 @@ export function useComposeState({
       const res = await fetch('/api/admin/newsletter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'test-send', subject, blocks, testEmail: testEmail.trim() }),
+        body: JSON.stringify({ action: 'test-send', subject, preheader: preheader || undefined, blocks, testEmail: testEmail.trim() }),
       })
       const data = await res.json()
       if (res.ok) {
@@ -323,7 +340,7 @@ export function useComposeState({
     } finally {
       setSending(false)
     }
-  }, [testEmail, subject, blocks, toast])
+  }, [testEmail, subject, preheader, blocks, toast])
 
   const handleSendConfirmed = useCallback(async () => {
     setConfirmSend(false)
@@ -339,7 +356,7 @@ export function useComposeState({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'send', subject, blocks,
+            action: 'send', subject, preheader: preheader || undefined, blocks,
             audienceFilter: audiencePayload,
             listId: listIdPayload,
             scheduledFor: scheduledDate.toISOString(),
@@ -359,7 +376,7 @@ export function useComposeState({
         const res = await fetch('/api/admin/newsletter', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send', subject, blocks, useSto: true, audienceFilter: audiencePayload, listId: listIdPayload }),
+          body: JSON.stringify({ action: 'send', subject, preheader: preheader || undefined, blocks, useSto: true, audienceFilter: audiencePayload, listId: listIdPayload }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Fehler beim Versenden.')
@@ -367,11 +384,29 @@ export function useComposeState({
         const latest = data.latest ? new Date(data.latest).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?'
         toast.success(`${data.enqueued} Mails geplant (${earliest} – ${latest}). ${data.pushed_now} sofort an Resend gesendet.`)
       } else {
+        const variantsPayload = abTestActive
+          ? [
+              { label: 'A', subject: subject.trim() },
+              { label: 'B', subject: subjectVariantB.trim() },
+            ]
+          : undefined
         const result = await streamingSend(
-          { action: 'send', subject, blocks, audienceFilter: audiencePayload, listId: listIdPayload },
+          {
+            action: 'send',
+            subject,
+            preheader: preheader || undefined,
+            blocks,
+            audienceFilter: audiencePayload,
+            listId: listIdPayload,
+            variants: variantsPayload,
+          },
           ({ sent, total }) => toast.info(`${sent} von ${total} gesendet…`),
         )
-        toast.success(`Erfolgreich an ${result.sent} Empfänger versendet.`)
+        toast.success(
+          abTestActive
+            ? `A/B-Test gestartet — ${result.sent} Empfänger (gleichmässig auf A/B verteilt).`
+            : `Erfolgreich an ${result.sent} Empfänger versendet.`,
+        )
       }
       goBackToPicker()
       loadData()
@@ -382,7 +417,8 @@ export function useComposeState({
     }
   }, [
     selectedListId, audienceFilter, scheduleMode, scheduleLocal, useSto,
-    subject, blocks, streamingSend, goBackToPicker, loadData, toast,
+    subject, preheader, blocks, abTestActive, subjectVariantB,
+    streamingSend, goBackToPicker, loadData, toast,
   ])
 
   return {
@@ -392,6 +428,11 @@ export function useComposeState({
     selectedTemplate, setSelectedTemplate,
     blocks, setBlocks,
     subject, setSubject,
+    preheader, setPreheader,
+    abTestEnabled, setAbTestEnabled,
+    subjectVariantB, setSubjectVariantB,
+    abTestActive,
+    subjectPickerTarget,
     generatingSubject,
     subjectOptions,
     showSubjectPicker, setShowSubjectPicker,

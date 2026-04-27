@@ -4,6 +4,7 @@ interface SubjectPickerModalProps {
   options: string[]
   generating: boolean
   canRegenerate: boolean
+  target?: 'a' | 'b'
   onSelect: (subject: string) => void
   onRegenerate: () => void
   onClose: () => void
@@ -13,15 +14,21 @@ export default function SubjectPickerModal({
   options,
   generating,
   canRegenerate,
+  target,
   onSelect,
   onRegenerate,
   onClose,
 }: SubjectPickerModalProps) {
+  const heading = target === 'b'
+    ? 'Betreffzeile · Variante B'
+    : target === 'a'
+      ? 'Betreffzeile · Variante A'
+      : 'Betreffzeile wählen'
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl backdrop-blur-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[var(--text)]">Betreffzeile wählen</h3>
+          <h3 className="text-lg font-semibold text-[var(--text)]">{heading}</h3>
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"

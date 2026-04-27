@@ -100,6 +100,7 @@ export interface AudienceFilter {
 export interface NewsletterDraft {
   id: string
   subject: string
+  preheader?: string
   blocks: import('@/lib/newsletter-blocks').NewsletterBlock[]
   templateId: string | null
   savedAt: string

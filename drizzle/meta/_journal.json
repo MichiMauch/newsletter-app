@@ -85,6 +85,20 @@
       "when": 1782010000000,
       "tag": "0011_automation_bounce_details",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1814000000000,
+      "tag": "0012_preheader",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1814010000000,
+      "tag": "0013_ab_testing",
+      "breakpoints": true
     }
   ]
 }

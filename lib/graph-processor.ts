@@ -3,6 +3,7 @@
  * Processes pending graph runs — one node at a time per enrollment.
  */
 
+import * as Sentry from '@sentry/nextjs'
 import { sendMultiBlockNewsletterEmail } from './notify'
 import { getSubscriberByEmail, getLastSendWithBlocks } from './newsletter'
 import { getContentItemsBySlugs } from './content'
@@ -78,6 +79,14 @@ export async function processGraphRuns(): Promise<ProcessResult[]> {
         ...(outcome.error ? { error: outcome.error } : {}),
       })
     } catch (err: unknown) {
+      Sentry.captureException(err, {
+        tags: { area: 'graph-processor', node_type: node.node_type },
+        extra: {
+          enrollmentId: run.enrollment_id,
+          nodeId: node.id,
+          subscriberEmail: run.subscriber_email,
+        },
+      })
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error(`[graph-processor] ${run.automation_name} / ${run.subscriber_email} / ${node.node_type}:`, err)
       const prior = await getLatestExecution(run.enrollment_id, node.id)
@@ -243,6 +252,7 @@ async function executeLastNewsletter(
   const expandedBlocks: NewsletterBlock[] = JSON.parse(lastSend.blocks_json)
   const blocks = wrapLastNewsletterStandalone(expandedBlocks, node.id)
   const subject = cfg.subject_override || lastSend.subject
+  const preheader = lastSend.preheader
 
   const slugs = new Set<string>()
   for (const b of blocks) {
@@ -257,6 +267,7 @@ async function executeLastNewsletter(
     email: run.subscriber_email,
     unsubscribeToken: subscriber.token,
     subject,
+    preheader,
     blocks,
     postsMap,
   })

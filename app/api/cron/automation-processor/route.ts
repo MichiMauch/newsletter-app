@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs'
 import { processGraphRuns } from '@/lib/graph-processor'
 import { runInactivityTriggers, runEngagementTriggers } from '@/lib/graph-automation'
 import { pushDueSendsToResend, flushDoneScheduledSends } from '@/lib/scheduled-sends'
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
     })
   } catch (err: unknown) {
     console.error('[cron/automation-processor] Error:', err)
+    Sentry.captureException(err, { tags: { area: 'cron', job: 'automation-processor' } })
     return Response.json({ error: 'Automation processing failed.' }, { status: 500 })
   }
 }

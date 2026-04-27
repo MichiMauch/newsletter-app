@@ -66,6 +66,7 @@ export const newsletterSends = sqliteTable('newsletter_sends', {
   postSlug: text('post_slug').notNull(),
   postTitle: text('post_title').notNull(),
   subject: text('subject').notNull(),
+  preheader: text('preheader'),
   blocksJson: text('blocks_json'),
   sentAt: text('sent_at').notNull().default(sql`(datetime('now'))`),
   scheduledFor: text('scheduled_for'),
@@ -96,11 +97,31 @@ export const newsletterRecipients = sqliteTable('newsletter_recipients', {
   bounceSubType: text('bounce_sub_type'),
   bounceMessage: text('bounce_message'),
   complainedAt: text('complained_at'),
+  variantLabel: text('variant_label'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_nr_send_id').on(table.sendId),
   index('idx_nr_resend_id').on(table.resendEmailId),
   index('idx_nr_bounce_sub_type').on(table.bounceSubType),
+  index('idx_nr_send_variant').on(table.sendId, table.variantLabel),
+])
+
+// ─── Newsletter Send Variants (A/B Test) ───────────────────────────────
+
+export const newsletterSendVariants = sqliteTable('newsletter_send_variants', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sendId: integer('send_id').notNull().references(() => newsletterSends.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  subject: text('subject').notNull(),
+  recipientCount: integer('recipient_count').notNull().default(0),
+  deliveredCount: integer('delivered_count').notNull().default(0),
+  clickedCount: integer('clicked_count').notNull().default(0),
+  bouncedCount: integer('bounced_count').notNull().default(0),
+  complainedCount: integer('complained_count').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('idx_nsv_unique').on(table.sendId, table.label),
+  index('idx_nsv_send').on(table.sendId),
 ])
 
 // ─── Newsletter Link Clicks ─────────────────────────────────────────────
@@ -325,6 +346,7 @@ export const scheduledSends = sqliteTable('scheduled_sends', {
   attempts: integer('attempts').notNull().default(0),
   lastError: text('last_error'),
   pushedAt: text('pushed_at'),
+  variantLabel: text('variant_label'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_ss_send').on(table.sendId),

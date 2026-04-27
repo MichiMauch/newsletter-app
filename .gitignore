@@ -12,9 +12,17 @@
 
 # testing
 /coverage
+/test-results
+/playwright-report
+/.test-artifacts
+/test.db
+/test.db-journal
+/test.db-shm
+/test.db-wal
 
 # next.js
 /.next/
+/.next-e2e/
 /out/
 
 # react-email dev preview

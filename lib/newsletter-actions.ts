@@ -9,12 +9,16 @@ import {
   getSubscribersByTagSignal,
   recordNewsletterSend,
   recordNewsletterRecipientsBatch,
+  recordSendVariants,
+  assignVariants,
+  parseVariantsInput,
   getFailedRecipientsForSend,
   updateRecipientResendId,
   getSendForRetry,
   deleteSubscriber,
   unsubscribeById,
   cancelNewsletterSend,
+  type VariantSpec,
 } from '@/lib/newsletter'
 import { sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { getContentItemsBySlugs } from '@/lib/content'
@@ -38,6 +42,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' } as const
 interface NewsletterActionBody {
   action?: string
   subject?: string
+  preheader?: string
   subscriberId?: number
   blocks?: NewsletterBlock[]
   testEmail?: string
@@ -46,6 +51,16 @@ interface NewsletterActionBody {
   audienceFilter?: unknown
   scheduledFor?: string
   listId?: number
+  variants?: unknown
+}
+
+const PREHEADER_MAX = 200
+
+function sanitizePreheader(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) return null
+  return trimmed.slice(0, PREHEADER_MAX)
 }
 
 function jsonOk(payload: object, status = 200): Response {
@@ -85,10 +100,17 @@ function parseAudienceFilter(raw: unknown): { tags: string[]; minSignal: number 
   return { tags, minSignal }
 }
 
+interface StreamRecipient {
+  email: string
+  token: string
+  subject: string
+  variantLabel?: string
+}
+
 function streamSend(
-  recipients: { email: string; token: string }[],
+  recipients: StreamRecipient[],
   site: SiteConfig,
-  subject: string,
+  preheader: string | null,
   blocks: NewsletterBlock[],
   postsMap: Record<string, PostRef>,
   sendId: number,
@@ -106,7 +128,8 @@ function streamSend(
             const result = await sendMultiBlockNewsletterEmail(site, {
               email: sub.email,
               unsubscribeToken: sub.token,
-              subject,
+              subject: sub.subject,
+              preheader,
               blocks,
               postsMap,
               sendId,
@@ -162,6 +185,7 @@ export async function actionStoBootstrap(): Promise<Response> {
 
 export async function actionTestSend(body: NewsletterActionBody, site: SiteConfig): Promise<Response> {
   const { subject, blocks, testEmail } = body
+  const preheader = sanitizePreheader(body.preheader)
   if (!subject || !blocks || !Array.isArray(blocks) || blocks.length === 0) {
     return jsonError('subject und blocks sind erforderlich.', 400)
   }
@@ -177,6 +201,7 @@ export async function actionTestSend(body: NewsletterActionBody, site: SiteConfi
     email: recipient,
     unsubscribeToken: 'test',
     subject: `[TEST] ${subject}`,
+    preheader,
     blocks,
     postsMap,
   })
@@ -204,7 +229,15 @@ export async function actionRetryFailed(body: NewsletterActionBody, site: SiteCo
   const slugs = collectSlugs(typedBlocks)
   const postsMap = await getContentItemsBySlugs(SITE_ID, [...slugs])
 
-  return streamSend(failedRecipients, site, sendData.subject, typedBlocks, postsMap, retrySendId)
+  // Retries reuse the original send's subject for every failed recipient.
+  // Variant-tracked sends keep their original variant_label on the recipient
+  // row, so per-variant counters still bump correctly when the retry lands.
+  const retryRecipients: StreamRecipient[] = failedRecipients.map((r) => ({
+    email: r.email,
+    token: r.token,
+    subject: sendData.subject,
+  }))
+  return streamSend(retryRecipients, site, sendData.preheader, typedBlocks, postsMap, retrySendId)
 }
 
 export async function actionDeleteSubscriber(body: NewsletterActionBody): Promise<Response> {
@@ -270,8 +303,18 @@ export async function actionCancelScheduled(body: NewsletterActionBody): Promise
 
 export async function actionSend(body: NewsletterActionBody, site: SiteConfig): Promise<Response> {
   const { subject, blocks, useSto, audienceFilter, scheduledFor, listId } = body
+  const preheader = sanitizePreheader(body.preheader)
+  const variants: VariantSpec[] | null = body.variants !== undefined ? parseVariantsInput(body.variants) : null
 
-  if (!subject) {
+  if (body.variants !== undefined && variants === null) {
+    return jsonError('Ungültige A/B-Varianten (2-5 Einträge mit "label" und "subject").', 400)
+  }
+
+  if (variants && (useSto || scheduledFor)) {
+    return jsonError('A/B-Test mit Send-Time-Optimization oder geplantem Versand ist (noch) nicht unterstützt.', 400)
+  }
+
+  if (!subject && !variants) {
     return jsonError('action=send und subject sind erforderlich.', 400)
   }
 
@@ -312,13 +355,18 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
   const firstPost = postsMap[firstSlug]
 
   // ─── Geplanter Versand (fixe Zeit oder STO ab geplantem Zeitpunkt) ───
+  // variants are rejected above when scheduled, so `subject` is guaranteed here.
   const scheduledForDate = parseScheduledFor(scheduledFor)
   if (scheduledForDate) {
+    if (!subject) {
+      return jsonError('subject ist für geplanten Versand erforderlich.', 400)
+    }
     const scheduledIso = scheduledForDate.toISOString()
     const sendId = await recordNewsletterSend(SITE_ID, {
       post_slug: firstSlug,
       post_title: firstPost?.title ?? subject,
       subject,
+      preheader,
       recipient_count: subscribers.length,
       blocks_json: JSON.stringify(blocks),
       scheduled_for: scheduledIso,
@@ -351,17 +399,41 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
     })
   }
 
+  // For variant sends the parent send.subject is informational ("A/B: A | B"),
+  // the actual per-recipient subject comes from the variants table.
+  const parentSubject = variants
+    ? `A/B: ${variants.map((v) => v.label).join(' | ')}`
+    : subject!
   const sendId = await recordNewsletterSend(SITE_ID, {
     post_slug: firstSlug,
-    post_title: firstPost?.title ?? subject,
-    subject,
+    post_title: firstPost?.title ?? parentSubject,
+    subject: parentSubject,
+    preheader,
     recipient_count: subscribers.length,
     blocks_json: JSON.stringify(blocks),
   })
 
-  await recordNewsletterRecipientsBatch(
-    subscribers.map((s) => ({ send_id: sendId, email: s.email, resend_email_id: null })),
-  )
+  if (variants) {
+    const assigned = assignVariants(subscribers, variants)
+    const counts = new Map<string, number>()
+    for (const a of assigned) counts.set(a.variant.label, (counts.get(a.variant.label) ?? 0) + 1)
+    await recordSendVariants(
+      sendId,
+      variants.map((v) => ({ ...v, recipient_count: counts.get(v.label) ?? 0 })),
+    )
+    await recordNewsletterRecipientsBatch(
+      assigned.map((a) => ({
+        send_id: sendId,
+        email: a.email,
+        resend_email_id: null,
+        variant_label: a.variant.label,
+      })),
+    )
+  } else {
+    await recordNewsletterRecipientsBatch(
+      subscribers.map((s) => ({ send_id: sendId, email: s.email, resend_email_id: null })),
+    )
+  }
 
   // ─── Send-Time Optimization: per-recipient Schedule statt Stream ───
   if (useSto) {
@@ -379,5 +451,14 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
     })
   }
 
-  return streamSend(subscribers, site, subject, blocks, postsMap, sendId)
+  const streamRecipients: StreamRecipient[] = variants
+    ? assignVariants(subscribers, variants).map((a) => ({
+        email: a.email,
+        token: a.token,
+        subject: a.variant.subject,
+        variantLabel: a.variant.label,
+      }))
+    : subscribers.map((s) => ({ email: s.email, token: s.token, subject: subject! }))
+
+  return streamSend(streamRecipients, site, preheader, blocks, postsMap, sendId)
 }

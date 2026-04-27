@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs'
 import { isAuthenticated } from '@/lib/admin-auth'
 import {
   getAllSubscribersEnriched,
@@ -7,6 +8,7 @@ import {
   getSendBlocksJson,
   getOverallNewsletterStats,
   getBounceOverview,
+  getVariantsForSend,
 } from '@/lib/newsletter'
 import { getContentItems } from '@/lib/content'
 import { getSiteConfig, DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
@@ -46,12 +48,13 @@ export async function GET(request: Request) {
       if (isNaN(id)) {
         return new Response(JSON.stringify({ error: 'Ungültige sendDetail ID.' }), { status: 400, headers: JSON_HEADERS })
       }
-      const [recipients, linkClicks, blocksJson] = await Promise.all([
+      const [recipients, linkClicks, blocksJson, variants] = await Promise.all([
         getRecipientsForSend(SITE_ID, id),
         getLinkClicksForSend(id),
         getSendBlocksJson(id),
+        getVariantsForSend(id),
       ])
-      return new Response(JSON.stringify({ sendDetail: { recipients, linkClicks, blocksJson } }), { status: 200, headers: JSON_HEADERS })
+      return new Response(JSON.stringify({ sendDetail: { recipients, linkClicks, blocksJson, variants } }), { status: 200, headers: JSON_HEADERS })
     }
 
     const [subscribers, sends] = await Promise.all([
@@ -79,6 +82,7 @@ export async function GET(request: Request) {
     return new Response(JSON.stringify(response), { status: 200, headers: JSON_HEADERS })
   } catch (err: unknown) {
     console.error('[admin/newsletter GET]', err)
+    Sentry.captureException(err, { tags: { area: 'admin-newsletter', method: 'GET' } })
     return new Response(JSON.stringify({ error: 'Daten konnten nicht geladen werden.' }), { status: 500, headers: JSON_HEADERS })
   }
 }
@@ -114,6 +118,7 @@ export async function POST(request: Request) {
     }
   } catch (err: unknown) {
     console.error('[admin/newsletter POST]', err)
+    Sentry.captureException(err, { tags: { area: 'admin-newsletter', method: 'POST' } })
     return new Response(JSON.stringify({ error: 'Newsletter konnte nicht versendet werden.' }), { status: 500, headers: JSON_HEADERS })
   }
 }

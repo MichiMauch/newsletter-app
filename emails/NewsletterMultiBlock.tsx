@@ -21,6 +21,7 @@ import { EmailHead } from './_layout'
 export interface NewsletterMultiBlockProps {
   site: SiteConfig
   subject?: string
+  preheader?: string | null
   blocks: NewsletterBlock[]
   postsMap: Record<string, PostRef>
   unsubscribeUrl: string
@@ -225,6 +226,7 @@ function SocialLinksView({ site, accentColor }: { site: SiteConfig; accentColor:
 export function NewsletterMultiBlock({
   site,
   subject,
+  preheader,
   blocks,
   postsMap,
   unsubscribeUrl,
@@ -265,7 +267,7 @@ export function NewsletterMultiBlock({
   return (
     <Html lang={site.locale.split('-')[0]}>
       <EmailHead />
-      <Preview>{subject ?? site.name}</Preview>
+      <Preview>{preheader || subject || site.name}</Preview>
       <Body
         className="e-page"
         style={{ margin: 0, padding: 0, backgroundColor: '#f3f4f6', fontFamily }}
@@ -412,6 +414,7 @@ const PREVIEW_POST_C: PostRef = {
 NewsletterMultiBlock.PreviewProps = {
   site: PREVIEW_SITE_CONFIG,
   subject: 'Tiny-House-News: Bau-Tagebuch + Kostenübersicht',
+  preheader: 'Wie wir in zwölf Monaten gebaut haben — und was es wirklich gekostet hat.',
   blocks: [
     { id: '1', type: 'hero', slug: 'bau-tagebuch' },
     {

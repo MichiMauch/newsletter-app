@@ -7,6 +7,13 @@ export function proxy(request: NextRequest) {
   const origin = request.headers.get('origin')
   const pathname = request.nextUrl.pathname
 
+  // ── Test-only routes: only reachable when E2E mode is on ────────
+  if (pathname.startsWith('/api/test')) {
+    if (process.env.E2E !== '1') {
+      return new NextResponse('Not found', { status: 404 })
+    }
+  }
+
   // ── Admin auth guard (fast reject if no session cookie) ──────────
   if (pathname.startsWith('/api/admin') && !pathname.startsWith('/api/admin/login')) {
     const cookie = request.cookies.get('admin_session')
@@ -40,5 +47,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/admin/:path*', '/api/v1/:path*'],
+  matcher: ['/api/admin/:path*', '/api/v1/:path*', '/api/test/:path*'],
 }

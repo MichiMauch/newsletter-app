@@ -10,6 +10,7 @@
  */
 
 import { and, eq, sql, lte, asc, inArray, isNotNull } from 'drizzle-orm'
+import * as Sentry from '@sentry/nextjs'
 import { getDb } from './db'
 import { scheduledSends } from './schema'
 import { getOptimalSendTime } from './send-time-optimization'
@@ -203,6 +204,7 @@ export async function pushDueSendsToResend(): Promise<{
     let site
     let blocks: NewsletterBlock[]
     let subject: string
+    let preheader: string | null
     let postsMap: Record<string, import('./newsletter-blocks').PostRef>
 
     try {
@@ -219,11 +221,13 @@ export async function pushDueSendsToResend(): Promise<{
       }
       site = await getSiteConfig(siteId)
       subject = sendData.subject
+      preheader = sendData.preheader
       blocks = JSON.parse(sendData.blocks_json) as NewsletterBlock[]
       const slugs = collectSlugs(blocks)
       postsMap = await getContentItemsBySlugs(siteId, [...slugs])
     } catch (err) {
       console.error(`[scheduled-sends] Failed to load send ${sendId}:`, err)
+      Sentry.captureException(err, { tags: { area: 'scheduled-sends', stage: 'load' }, extra: { sendId, siteId } })
       for (const row of group) {
         await db.update(scheduledSends)
           .set({
@@ -243,6 +247,7 @@ export async function pushDueSendsToResend(): Promise<{
           email: row.email,
           unsubscribeToken: row.token,
           subject,
+          preheader,
           blocks,
           postsMap,
           scheduledAt: row.scheduledAtUtc,
@@ -269,7 +274,13 @@ export async function pushDueSendsToResend(): Promise<{
         await db.update(scheduledSends)
           .set({ status: finalStatus, lastError: message, attempts: newAttempts })
           .where(eq(scheduledSends.id, row.id))
-        if (finalStatus === 'failed') failed++
+        if (finalStatus === 'failed') {
+          failed++
+          Sentry.captureException(err, {
+            tags: { area: 'scheduled-sends', stage: 'push' },
+            extra: { sendId, recipient: row.email, attempts: newAttempts },
+          })
+        }
       }
     }
 

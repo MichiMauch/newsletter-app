@@ -3,7 +3,8 @@
  * All branding is injected via SiteConfig
  */
 
-import { Resend } from 'resend'
+import * as Sentry from '@sentry/nextjs'
+import { getResendClient } from './resend-client'
 import type { SiteConfig } from './site-config'
 import {
   renderNewsletterHtml,
@@ -15,10 +16,8 @@ import {
 } from './newsletter-render'
 import type { NewsletterBlock, PostRef } from './newsletter-blocks'
 
-let _resend: Resend | null = null
-function getResend(): Resend {
-  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY)
-  return _resend
+function getResend() {
+  return getResendClient()
 }
 
 function fromAddress(site: SiteConfig): string {
@@ -84,6 +83,7 @@ export async function sendConfirmationEmail(site: SiteConfig, data: { email: str
     }
   } catch (err) {
     console.error('[notify] Failed to send confirmation email:', err)
+    Sentry.captureException(err, { tags: { area: 'notify', kind: 'confirmation' } })
   }
 }
 
@@ -109,6 +109,7 @@ export async function sendAlreadySubscribedEmail(site: SiteConfig, data: { email
     }
   } catch (err) {
     console.error('[notify] Failed to send already-subscribed email:', err)
+    Sentry.captureException(err, { tags: { area: 'notify', kind: 'already-subscribed' } })
   }
 }
 
@@ -171,6 +172,7 @@ export async function sendMultiBlockNewsletterEmail(
     email: string
     unsubscribeToken: string
     subject: string
+    preheader?: string | null
     blocks: NewsletterBlock[]
     postsMap: Record<string, PostRef>
     scheduledAt?: string // ISO-8601, an Resend durchgereicht für Send-Time Optimization
@@ -183,6 +185,7 @@ export async function sendMultiBlockNewsletterEmail(
     const props = {
       site,
       subject: data.subject,
+      preheader: data.preheader ?? null,
       blocks: data.blocks,
       postsMap: data.postsMap,
       unsubscribeUrl,
@@ -219,6 +222,10 @@ export async function sendMultiBlockNewsletterEmail(
     return { resendEmailId: result.data?.id ?? null }
   } catch (err) {
     console.error(`[notify] Failed to send multi-block newsletter to ${data.email}:`, err)
+    Sentry.captureException(err, {
+      tags: { area: 'notify', kind: 'newsletter-multi' },
+      extra: { sendId: data.sendId, recipient: data.email },
+    })
     throw err
   }
 }

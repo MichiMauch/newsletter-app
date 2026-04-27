@@ -5,9 +5,11 @@
  *   - newsletter-sends.ts       (sends + recipient tracking + stats)
  *   - newsletter-bounces.ts     (cross-source bounce overview)
  *   - newsletter-stats.ts       (trends + growth)
+ *   - newsletter-variants.ts    (A/B test subject variants)
  */
 
 export * from './newsletter-subscribers'
 export * from './newsletter-sends'
 export * from './newsletter-bounces'
 export * from './newsletter-stats'
+export * from './newsletter-variants'

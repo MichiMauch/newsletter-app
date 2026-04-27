@@ -39,6 +39,9 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
     selectedTemplate,
     blocks,
     subject, setSubject,
+    preheader, setPreheader,
+    abTestEnabled, setAbTestEnabled,
+    subjectVariantB, setSubjectVariantB,
     generatingSubject,
     audienceFilter, setAudienceFilter,
     sending,
@@ -202,6 +205,12 @@ export default function ComposeWizard({ compose, posts, toast, loadData, setConf
           selectedTemplateName={selectedTemplate.name}
           subject={subject}
           setSubject={setSubject}
+          preheader={preheader}
+          setPreheader={setPreheader}
+          abTestEnabled={abTestEnabled}
+          setAbTestEnabled={setAbTestEnabled}
+          subjectVariantB={subjectVariantB}
+          setSubjectVariantB={setSubjectVariantB}
           generatingSubject={generatingSubject}
           generateSubject={generateSubject}
           blocks={blocks}
@@ -247,8 +256,14 @@ interface FillSlotsViewProps {
   selectedTemplateName: string
   subject: string
   setSubject: (s: string) => void
+  preheader: string
+  setPreheader: (s: string) => void
+  abTestEnabled: boolean
+  setAbTestEnabled: (v: boolean) => void
+  subjectVariantB: string
+  setSubjectVariantB: (s: string) => void
   generatingSubject: boolean
-  generateSubject: () => void
+  generateSubject: (target?: 'a' | 'b') => void
   blocks: ComposeApi['blocks']
   posts: Post[]
   updateBlock: ComposeApi['updateBlock']
@@ -280,9 +295,13 @@ interface FillSlotsViewProps {
   loadData: () => void | Promise<void>
 }
 
+const PREHEADER_MAX = 200
+
 function FillSlotsView({
   stepIndex, contentReady, composeStep, setComposeStep,
-  selectedTemplateName, subject, setSubject, generatingSubject, generateSubject,
+  selectedTemplateName, subject, setSubject, preheader, setPreheader,
+  abTestEnabled, setAbTestEnabled, subjectVariantB, setSubjectVariantB,
+  generatingSubject, generateSubject,
   blocks, posts, updateBlock, removeBlock, moveBlock, insertBlock,
   audienceFilter, setAudienceFilter,
   availableLists, selectedListId, setSelectedListId, selectedList,
@@ -322,31 +341,97 @@ function FillSlotsView({
       )}
 
       {composeStep === 'content' && (
-        <div>
-          <label className="mb-2 block text-sm font-medium text-[var(--text)]">Betreffzeile</label>
-          <div className="flex gap-2">
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 flex items-baseline justify-between text-sm font-medium text-[var(--text)]">
+              <span>{abTestEnabled ? 'Betreffzeile · Variante A' : 'Betreffzeile'}</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Newsletter-Betreff…"
+                className={inputCls + ' flex-1'}
+              />
+              <button
+                onClick={() => generateSubject('a')}
+                disabled={generatingSubject || blocks.length === 0}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+              >
+                {generatingSubject ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <span>✨</span>
+                )}
+                {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={abTestEnabled}
+                onChange={(e) => setAbTestEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 cursor-pointer"
+              />
+              <span className="flex-1">
+                <span className="block text-sm font-medium text-[var(--text)]">A/B-Test (2 Varianten)</span>
+                <span className="block text-xs text-[var(--text-muted)]">
+                  Empfänger werden gleichmässig auf zwei Betreffzeilen verteilt. Klickraten je Variante landen in der Historie. Nicht kombinierbar mit STO oder geplantem Versand.
+                </span>
+              </span>
+            </label>
+            {abTestEnabled && (
+              <div className="mt-3">
+                <label className="mb-2 block text-sm font-medium text-[var(--text)]">Betreffzeile · Variante B</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={subjectVariantB}
+                    onChange={(e) => setSubjectVariantB(e.target.value)}
+                    placeholder="Alternativer Betreff für Variante B…"
+                    className={inputCls + ' flex-1'}
+                  />
+                  <button
+                    onClick={() => generateSubject('b')}
+                    disabled={generatingSubject || blocks.length === 0}
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+                    title="Alternativen Betreff von der AI generieren lassen"
+                  >
+                    {generatingSubject ? (
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    ) : (
+                      <span>✨</span>
+                    )}
+                    {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-2 flex items-baseline justify-between text-sm font-medium text-[var(--text)]">
+              <span>Preheader <span className="text-xs font-normal text-[var(--text-muted)]">(optional)</span></span>
+              <span className="text-[10px] tabular-nums text-[var(--text-muted)]">{preheader.length}/{PREHEADER_MAX}</span>
+            </label>
             <input
               type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Newsletter-Betreff…"
-              className={inputCls + ' flex-1'}
+              value={preheader}
+              onChange={(e) => setPreheader(e.target.value.slice(0, PREHEADER_MAX))}
+              maxLength={PREHEADER_MAX}
+              placeholder="Vorschauzeile in der Inbox — die ersten ~110 Zeichen sind in Gmail/Apple Mail sichtbar."
+              className={inputCls}
             />
-            <button
-              onClick={generateSubject}
-              disabled={generatingSubject || blocks.length === 0}
-              className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
-            >
-              {generatingSubject ? (
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              ) : (
-                <span>✨</span>
-              )}
-              {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
-            </button>
           </div>
         </div>
       )}

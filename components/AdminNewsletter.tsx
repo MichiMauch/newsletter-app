@@ -137,6 +137,10 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
     composeMode,
     blocks,
     subject, setSubject,
+    preheader, setPreheader,
+    abTestEnabled, setAbTestEnabled,
+    subjectVariantB, setSubjectVariantB,
+    subjectPickerTarget,
     generatingSubject,
     subjectOptions,
     showSubjectPicker, setShowSubjectPicker,
@@ -206,6 +210,14 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
           <NewsletterStudio
             subject={subject}
             onSubjectChange={setSubject}
+            preheader={preheader}
+            onPreheaderChange={setPreheader}
+            abTestEnabled={abTestEnabled}
+            onAbTestEnabledChange={setAbTestEnabled}
+            subjectVariantB={subjectVariantB}
+            onSubjectVariantBChange={setSubjectVariantB}
+            generatingSubject={generatingSubject}
+            onGenerateSubject={generateSubject}
             blocks={blocks}
             onUpdateBlock={updateBlock}
             onRemoveBlock={removeBlock}
@@ -258,7 +270,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
       {/* Preview Modal */}
       {showPreview && blocksAreValid(blocks) && (
         <PreviewModal
-          html={buildMultiBlockNewsletterHtml(PREVIEW_SITE_CONFIG, blocks, postsMap, '#')}
+          html={buildMultiBlockNewsletterHtml(PREVIEW_SITE_CONFIG, blocks, postsMap, '#', preheader || null)}
           onClose={() => setShowPreview(false)}
         />
       )}
@@ -353,11 +365,13 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
           options={subjectOptions}
           generating={generatingSubject}
           canRegenerate={blocks.length > 0}
+          target={subjectPickerTarget}
           onSelect={(s) => {
-            setSubject(s)
+            if (subjectPickerTarget === 'b') setSubjectVariantB(s)
+            else setSubject(s)
             setShowSubjectPicker(false)
           }}
-          onRegenerate={generateSubject}
+          onRegenerate={() => generateSubject(subjectPickerTarget)}
           onClose={() => setShowSubjectPicker(false)}
         />
       )}

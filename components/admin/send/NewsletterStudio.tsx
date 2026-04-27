@@ -12,6 +12,14 @@ import InsertToolbar from './InsertToolbar'
 interface NewsletterStudioProps {
   subject: string
   onSubjectChange: (value: string) => void
+  preheader: string
+  onPreheaderChange: (value: string) => void
+  abTestEnabled: boolean
+  onAbTestEnabledChange: (v: boolean) => void
+  subjectVariantB: string
+  onSubjectVariantBChange: (value: string) => void
+  generatingSubject: boolean
+  onGenerateSubject: (target: 'a' | 'b') => void
   blocks: NewsletterBlock[]
   onUpdateBlock: (index: number, updated: NewsletterBlock) => void
   onRemoveBlock: (index: number) => void
@@ -25,9 +33,19 @@ interface NewsletterStudioProps {
   onExit: () => void
 }
 
+const PREHEADER_MAX = 200
+
 export default function NewsletterStudio({
   subject,
   onSubjectChange,
+  preheader,
+  onPreheaderChange,
+  abTestEnabled,
+  onAbTestEnabledChange,
+  subjectVariantB,
+  onSubjectVariantBChange,
+  generatingSubject,
+  onGenerateSubject,
   blocks,
   onUpdateBlock,
   onRemoveBlock,
@@ -42,7 +60,7 @@ export default function NewsletterStudio({
 }: NewsletterStudioProps) {
   const usedSlugs = getUsedSlugs(blocks)
   const html = blocksAreValid(blocks)
-    ? buildMultiBlockNewsletterHtml(siteConfig, blocks, postsMap, '#')
+    ? buildMultiBlockNewsletterHtml(siteConfig, blocks, postsMap, '#', preheader || null)
     : null
 
   useEffect(() => {
@@ -56,15 +74,94 @@ export default function NewsletterStudio({
   return (
     <div className="flex h-screen flex-col bg-[var(--background)]">
       {/* Header */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--background-card)] px-4 py-2.5">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Studio</span>
-        <input
-          type="text"
-          value={subject}
-          onChange={(e) => onSubjectChange(e.target.value)}
-          placeholder="Newsletter-Betreff…"
-          className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
-        />
+      <header className="flex shrink-0 flex-col gap-2 border-b border-[var(--border)] bg-[var(--background-card)] px-4 py-2.5 lg:flex-row lg:items-start">
+        <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Studio</span>
+        <div className="flex flex-1 flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            {abTestEnabled && (
+              <span className="shrink-0 rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text)]">A</span>
+            )}
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => onSubjectChange(e.target.value)}
+              placeholder={abTestEnabled ? 'Betreff Variante A…' : 'Newsletter-Betreff…'}
+              className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+            />
+            <button
+              type="button"
+              onClick={() => onGenerateSubject('a')}
+              disabled={generatingSubject || blocks.length === 0}
+              className="flex shrink-0 items-center gap-1 border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+              title={abTestEnabled ? 'AI-Vorschläge für Variante A' : 'AI-Vorschläge für Betreff'}
+            >
+              {generatingSubject ? (
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <span>✨</span>
+              )}
+              <span>AI</span>
+            </button>
+          </div>
+          {abTestEnabled && (
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text)]">B</span>
+              <input
+                type="text"
+                value={subjectVariantB}
+                onChange={(e) => onSubjectVariantBChange(e.target.value)}
+                placeholder="Betreff Variante B…"
+                className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+              />
+              <button
+                type="button"
+                onClick={() => onGenerateSubject('b')}
+                disabled={generatingSubject || blocks.length === 0}
+                className="flex shrink-0 items-center gap-1 border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+                title="AI-Vorschläge für Variante B"
+              >
+                {generatingSubject ? (
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <span>✨</span>
+                )}
+                <span>AI</span>
+              </button>
+            </div>
+          )}
+          <div className="relative">
+            <input
+              type="text"
+              value={preheader}
+              onChange={(e) => onPreheaderChange(e.target.value.slice(0, PREHEADER_MAX))}
+              placeholder="Preheader (Vorschauzeile in der Inbox)…"
+              maxLength={PREHEADER_MAX}
+              className="w-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 pr-12 text-xs text-[var(--text-secondary)] outline-none focus:border-primary-400"
+            />
+            <span
+              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums text-[var(--text-muted)]"
+              title={`Empfohlen: ≤ 110 Zeichen (Gmail/Apple Mail Vorschau). Maximum: ${PREHEADER_MAX}.`}
+            >
+              {preheader.length}/{PREHEADER_MAX}
+            </span>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={abTestEnabled}
+              onChange={(e) => onAbTestEnabledChange(e.target.checked)}
+              className="h-3.5 w-3.5 cursor-pointer"
+            />
+            <span>A/B-Test (2 Varianten)</span>
+            <span className="text-[var(--text-muted)]">— gleichmässige Verteilung, nicht mit STO/Schedule kombinierbar</span>
+          </label>
+        </div>
 
         <div className="flex items-center border border-[var(--border)] bg-[var(--background-card)]" role="group" aria-label="Vorschau-Breite">
           <button

@@ -42,12 +42,18 @@ export async function POST(request: Request) {
     const ip = getClientIp(request)
 
     // Per-IP and global buckets — both must allow.
-    const [perIp, global] = await Promise.all([
-      checkRateLimit(`login:${ip}`, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS),
-      checkRateLimit('login:global', LOGIN_GLOBAL_MAX_ATTEMPTS, LOGIN_WINDOW_MS),
-    ])
-    if (!perIp.allowed || !global.allowed) {
-      return new Response(JSON.stringify({ error: 'Zu viele Anmeldeversuche. Bitte warte 15 Minuten.' }), { status: 429, headers })
+    // E2E=1 disables the buckets so a Playwright run can do dozens of logins
+    // without burning through the limit. Rate-limiting itself is unit-tested
+    // via the rate-limit lib; the route's behaviour under burst is covered
+    // separately when needed.
+    if (process.env.E2E !== '1') {
+      const [perIp, global] = await Promise.all([
+        checkRateLimit(`login:${ip}`, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS),
+        checkRateLimit('login:global', LOGIN_GLOBAL_MAX_ATTEMPTS, LOGIN_WINDOW_MS),
+      ])
+      if (!perIp.allowed || !global.allowed) {
+        return new Response(JSON.stringify({ error: 'Zu viele Anmeldeversuche. Bitte warte 15 Minuten.' }), { status: 429, headers })
+      }
     }
 
     const { password } = await request.json()
@@ -59,11 +65,21 @@ export async function POST(request: Request) {
 
     const sessionToken = await createSession()
 
+    // `Secure` is only valid over HTTPS — set it when the request actually
+    // came in over TLS so http://127.0.0.1 (E2E + early local dev) can still
+    // store the cookie. Behind a TLS-terminating proxy the original scheme
+    // arrives in X-Forwarded-Proto, otherwise we read it off the request URL.
+    const forwardedProto = request.headers.get('x-forwarded-proto')
+    const isHttps = forwardedProto
+      ? forwardedProto.split(',')[0]?.trim() === 'https'
+      : new URL(request.url).protocol === 'https:'
+    const secureAttr = isHttps ? '; Secure' : ''
+
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Set-Cookie': `admin_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${60 * 60 * 24 * 7}`,
+        'Set-Cookie': `admin_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=${60 * 60 * 24 * 7}`,
       },
     })
   } catch (err) {

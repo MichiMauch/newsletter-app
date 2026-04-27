@@ -5,6 +5,7 @@ import {
   newsletterSends,
   newsletterRecipients,
   newsletterLinkClicks,
+  newsletterSendVariants,
 } from './schema'
 
 export interface NewsletterSend {
@@ -13,6 +14,7 @@ export interface NewsletterSend {
   post_slug: string
   post_title: string
   subject: string
+  preheader: string | null
   sent_at: string
   scheduled_for: string | null
   recipient_count: number
@@ -63,6 +65,7 @@ export async function recordNewsletterSend(siteId: string, data: {
   post_slug: string
   post_title: string
   subject: string
+  preheader?: string | null
   recipient_count: number
   blocks_json?: string
   scheduled_for?: string
@@ -74,6 +77,7 @@ export async function recordNewsletterSend(siteId: string, data: {
     postSlug: data.post_slug,
     postTitle: data.post_title,
     subject: data.subject,
+    preheader: data.preheader ?? null,
     recipientCount: data.recipient_count,
     blocksJson: data.blocks_json ?? null,
     scheduledFor: data.scheduled_for ?? null,
@@ -104,10 +108,11 @@ export async function markScheduledSendAsSent(sendId: number): Promise<void> {
   `)
 }
 
-export async function getLastSendWithBlocks(siteId: string): Promise<{ subject: string; blocks_json: string; post_slug: string } | null> {
+export async function getLastSendWithBlocks(siteId: string): Promise<{ subject: string; preheader: string | null; blocks_json: string; post_slug: string } | null> {
   const db = getDb()
   const rows = await db.select({
     subject: newsletterSends.subject,
+    preheader: newsletterSends.preheader,
     blocks_json: newsletterSends.blocksJson,
     post_slug: newsletterSends.postSlug,
   }).from(newsletterSends)
@@ -116,16 +121,20 @@ export async function getLastSendWithBlocks(siteId: string): Promise<{ subject: 
     .limit(1)
   const row = rows[0]
   if (!row || !row.blocks_json) return null
-  return { subject: row.subject, blocks_json: row.blocks_json, post_slug: row.post_slug }
+  return { subject: row.subject, preheader: row.preheader, blocks_json: row.blocks_json, post_slug: row.post_slug }
 }
 
-export async function getSendForRetry(sendId: number): Promise<{ subject: string; blocks_json: string } | null> {
+export async function getSendForRetry(sendId: number): Promise<{ subject: string; preheader: string | null; blocks_json: string } | null> {
   const db = getDb()
-  const rows = await db.select({ subject: newsletterSends.subject, blocks_json: newsletterSends.blocksJson })
+  const rows = await db.select({
+    subject: newsletterSends.subject,
+    preheader: newsletterSends.preheader,
+    blocks_json: newsletterSends.blocksJson,
+  })
     .from(newsletterSends).where(eq(newsletterSends.id, sendId)).limit(1)
   const row = rows[0]
   if (!row || !row.blocks_json) return null
-  return { subject: row.subject, blocks_json: row.blocks_json }
+  return { subject: row.subject, preheader: row.preheader, blocks_json: row.blocks_json }
 }
 
 export async function getNewsletterSends(siteId: string): Promise<NewsletterSend[]> {
@@ -135,7 +144,7 @@ export async function getNewsletterSends(siteId: string): Promise<NewsletterSend
     .orderBy(sql`${newsletterSends.sentAt} DESC`)
   return rows.map((r) => ({
     id: r.id, site_id: r.siteId, post_slug: r.postSlug, post_title: r.postTitle,
-    subject: r.subject, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
+    subject: r.subject, preheader: r.preheader, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
     recipient_count: r.recipientCount, status: r.status,
   }))
 }
@@ -143,7 +152,7 @@ export async function getNewsletterSends(siteId: string): Promise<NewsletterSend
 // ─── Recipient Tracking ─────────────────────────────────────────────
 
 export async function recordNewsletterRecipientsBatch(
-  recipients: { send_id: number; email: string; resend_email_id: string | null }[],
+  recipients: { send_id: number; email: string; resend_email_id: string | null; variant_label?: string | null }[],
 ): Promise<void> {
   if (recipients.length === 0) return
   const db = getDb()
@@ -151,7 +160,12 @@ export async function recordNewsletterRecipientsBatch(
   for (let i = 0; i < recipients.length; i += CHUNK_SIZE) {
     const chunk = recipients.slice(i, i + CHUNK_SIZE)
     await db.insert(newsletterRecipients).values(
-      chunk.map((r) => ({ sendId: r.send_id, email: r.email, resendEmailId: r.resend_email_id })),
+      chunk.map((r) => ({
+        sendId: r.send_id,
+        email: r.email,
+        resendEmailId: r.resend_email_id,
+        variantLabel: r.variant_label ?? null,
+      })),
     )
   }
 }
@@ -176,6 +190,7 @@ export async function updateRecipientEvent(
       email: newsletterRecipients.email,
       status: newsletterRecipients.status,
       clickCount: newsletterRecipients.clickCount,
+      variantLabel: newsletterRecipients.variantLabel,
       siteId: newsletterSends.siteId,
     })
     .from(newsletterRecipients)
@@ -187,6 +202,17 @@ export async function updateRecipientEvent(
 
   const recipient = existing[0]
   if (recipient.status === 'bounced' || recipient.status === 'complained') return
+
+  async function bumpVariant(field: 'deliveredCount' | 'clickedCount' | 'bouncedCount' | 'complainedCount') {
+    if (!recipient.variantLabel) return
+    const column = newsletterSendVariants[field]
+    await db.update(newsletterSendVariants)
+      .set({ [field]: sql`${column} + 1` })
+      .where(and(
+        eq(newsletterSendVariants.sendId, recipient.sendId),
+        eq(newsletterSendVariants.label, recipient.variantLabel),
+      ))
+  }
 
   switch (event) {
     case 'delivered': {
@@ -201,6 +227,7 @@ export async function updateRecipientEvent(
         await db.update(newsletterSends)
           .set({ deliveredCount: sql`${newsletterSends.deliveredCount} + 1` })
           .where(eq(newsletterSends.id, recipient.sendId))
+        await bumpVariant('deliveredCount')
       }
       break
     }
@@ -213,6 +240,7 @@ export async function updateRecipientEvent(
         await db.update(newsletterSends)
           .set({ clickedCount: sql`${newsletterSends.clickedCount} + 1` })
           .where(eq(newsletterSends.id, recipient.sendId))
+        await bumpVariant('clickedCount')
       }
       if (metadata?.click_url) {
         await db.insert(newsletterLinkClicks).values({
@@ -234,6 +262,7 @@ export async function updateRecipientEvent(
       await db.update(newsletterSends)
         .set({ bouncedCount: sql`${newsletterSends.bouncedCount} + 1` })
         .where(eq(newsletterSends.id, recipient.sendId))
+      await bumpVariant('bouncedCount')
       if (metadata?.bounce_type === 'hard') {
         await db.update(newsletterSubscribers)
           .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
@@ -280,6 +309,7 @@ export async function updateRecipientEvent(
       await db.update(newsletterSends)
         .set({ complainedCount: sql`${newsletterSends.complainedCount} + 1` })
         .where(eq(newsletterSends.id, recipient.sendId))
+      await bumpVariant('complainedCount')
       await db.update(newsletterSubscribers)
         .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
         .where(and(
@@ -311,7 +341,7 @@ export async function getNewsletterSendsWithStats(siteId: string): Promise<Newsl
     .orderBy(sql`COALESCE(${newsletterSends.scheduledFor}, ${newsletterSends.sentAt}) DESC`)
   return rows.map((r) => ({
     id: r.id, site_id: r.siteId, post_slug: r.postSlug, post_title: r.postTitle,
-    subject: r.subject, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
+    subject: r.subject, preheader: r.preheader, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
     recipient_count: r.recipientCount, status: r.status,
     delivered_count: r.deliveredCount, clicked_count: r.clickedCount,
     bounced_count: r.bouncedCount, complained_count: r.complainedCount,

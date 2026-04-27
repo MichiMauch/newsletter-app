@@ -16,13 +16,25 @@
     "db:migrate-sends": "npx tsx scripts/migrate-sends.ts",
     "db:sync-content": "npx tsx scripts/sync-content.ts",
     "email": "email dev --port 3001 --dir emails",
-    "email:export": "email export --dir emails --out .preview-emails"
+    "email:export": "email export --dir emails --out .preview-emails",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install chromium",
+    "db:migrate-test": "npx tsx scripts/e2e-setup.ts",
+    "check": "npx tsc --noEmit && vitest run",
+    "check:full": "npx tsc --noEmit && vitest run && playwright test",
+    "prepare": "husky"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.85.0",
     "@libsql/client": "^0.17.2",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.0.7",
+    "@sentry/nextjs": "^10.50.0",
     "@tiptap/extension-link": "^3.22.1",
     "@tiptap/pm": "^3.22.1",
     "@tiptap/react": "^3.22.1",
@@ -39,17 +51,22 @@
     "svix": "^1.89.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@react-email/preview-server": "^5.2.11",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^20.19.39",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/ui": "^4.1.5",
     "dotenv": "^17.3.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "husky": "^9.1.7",
+    "jsdom": "^29.0.2",
     "react-email": "^5.2.11",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.5"
   }
 }

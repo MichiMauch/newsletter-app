@@ -1,4 +1,5 @@
 import { Webhook } from 'svix'
+import * as Sentry from '@sentry/nextjs'
 import { updateRecipientEvent, getRecipientByResendId } from '@/lib/newsletter'
 import { updateAutomationSendEvent } from '@/lib/automation'
 import { enrollOnLinkClick } from '@/lib/graph-automation'
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
     }
   } catch (err) {
     console.error(`[webhook/resend] Error processing ${type}:`, err)
+    Sentry.captureException(err, { tags: { area: 'webhook', kind: 'resend', event: type } })
     return new Response('Processing error', { status: 500 })
   }
 
