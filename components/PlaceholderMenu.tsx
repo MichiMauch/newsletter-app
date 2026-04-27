@@ -83,7 +83,7 @@ export default function PlaceholderMenu({ onInsert, variant = 'toolbar' }: Place
           title="Personalisierung einfügen"
           aria-haspopup="menu"
           aria-expanded={open}
-          className={`inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--background-card)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider transition-colors ${
+          className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--background-card)] px-3 text-[10px] font-medium uppercase tracking-wider transition-colors ${
             open
               ? 'border-primary-400 text-primary-700 dark:text-primary-300'
               : 'text-[var(--text-secondary)] hover:border-primary-400 hover:text-primary-700 dark:hover:text-primary-300'

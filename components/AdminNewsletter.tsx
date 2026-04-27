@@ -65,23 +65,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
   const pendingTab = isPendingNav ? pendingTabRaw : null
   const pendingSubTab = isPendingNav ? pendingSubTabRaw : null
 
-  const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'compose') => {
-    setPendingTabRaw(newTab)
-    if (newTab === 'send') setPendingSubTabRaw(newSubTab)
-    window.history.pushState(null, '', tabToHref(newTab, newSubTab))
-    startNavTransition(() => {
-      setTab(newTab)
-      if (newTab === 'send') setSendSubTab(newSubTab)
-    })
-  }, [])
-  const setSendSubTabWithUrl = useCallback((sub: SendSubTab) => {
-    setPendingSubTabRaw(sub)
-    window.history.pushState(null, '', tabToHref('send', sub))
-    startNavTransition(() => {
-      setSendSubTab(sub)
-    })
-  }, [])
-
   const {
     phase, setPhase,
     subscribers,
@@ -184,6 +167,31 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
     handleTestSendConfirmed,
     handleSendConfirmed,
   } = compose
+
+  // Navigation helpers. Defined after compose + automationFullscreen so we can
+  // close any open fullscreen overlays before swapping tabs. Without that
+  // reset, navigating away from Studio (or the Automation editor) leaves
+  // studioMode/automationFullscreen true while the overlay's owning condition
+  // (e.g. tab === 'send') no longer matches → nothing renders, blank page.
+  const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'compose') => {
+    setPendingTabRaw(newTab)
+    if (newTab === 'send') setPendingSubTabRaw(newSubTab)
+    window.history.pushState(null, '', tabToHref(newTab, newSubTab))
+    setStudioMode(false)
+    setAutomationFullscreen(false)
+    startNavTransition(() => {
+      setTab(newTab)
+      if (newTab === 'send') setSendSubTab(newSubTab)
+    })
+  }, [setStudioMode])
+  const setSendSubTabWithUrl = useCallback((sub: SendSubTab) => {
+    setPendingSubTabRaw(sub)
+    window.history.pushState(null, '', tabToHref('send', sub))
+    if (sub !== 'compose') setStudioMode(false)
+    startNavTransition(() => {
+      setSendSubTab(sub)
+    })
+  }, [setStudioMode])
 
   if (phase === 'checking') {
     return (

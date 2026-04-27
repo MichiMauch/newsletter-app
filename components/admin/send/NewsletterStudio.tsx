@@ -115,7 +115,7 @@ export default function NewsletterStudio({
               value={subject}
               onChange={(e) => onSubjectChange(e.target.value)}
               placeholder={abTestEnabled ? 'Betreff Variante A…' : 'Newsletter-Betreff…'}
-              className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+              className="h-8 flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text)] outline-none focus:border-primary-400"
             />
             {subject.trim() !== '' && (
               <SubjectScoreBadge subject={subject} label={abTestEnabled ? 'A' : undefined} />
@@ -134,7 +134,7 @@ export default function NewsletterStudio({
                 value={subjectVariantB}
                 onChange={(e) => onSubjectVariantBChange(e.target.value)}
                 placeholder="Betreff Variante B…"
-                className="flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--text)] outline-none focus:border-primary-400"
+                className="h-8 flex-1 border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text)] outline-none focus:border-primary-400"
               />
               {subjectVariantB.trim() !== '' && (
                 <SubjectScoreBadge subject={subjectVariantB} label="B" />
@@ -154,7 +154,7 @@ export default function NewsletterStudio({
                 onChange={(e) => onPreheaderChange(e.target.value.slice(0, PREHEADER_MAX))}
                 placeholder="Preheader (Vorschauzeile in der Inbox)…"
                 maxLength={PREHEADER_MAX}
-                className="w-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 pr-12 text-xs text-[var(--text-secondary)] outline-none focus:border-primary-400"
+                className="h-8 w-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 pr-12 text-xs text-[var(--text-secondary)] outline-none focus:border-primary-400"
               />
               <span
                 className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums text-[var(--text-muted)]"
@@ -183,10 +183,10 @@ export default function NewsletterStudio({
         <button
           type="button"
           onClick={onExit}
-          className="flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background-card)] px-3 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text)]"
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[var(--text)] px-3.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--background)] transition-opacity hover:opacity-80"
           title="Studio verlassen (ESC)"
         >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l6 6m0-6l-6 6" />
           </svg>
           Schliessen

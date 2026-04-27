@@ -26,7 +26,7 @@ export default function SubjectScoreBadge({ subject, label }: Props) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-1 border px-2 py-0.5 text-[10px] font-semibold tabular-nums transition-colors ${tone.classes}`}
+        className={`flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-[10px] font-semibold tabular-nums uppercase tracking-wider transition-colors ${tone.classes}`}
         title="Subject-Score (Klicken für Details)"
         aria-expanded={open}
       >
