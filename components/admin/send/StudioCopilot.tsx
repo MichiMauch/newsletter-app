@@ -6,12 +6,13 @@ import {
   type AssistantContent,
   type ToolName,
 } from '@/hooks/useCopilotChat'
-import type { NewsletterBlock, TextBlock, LastNewsletterBlock } from '@/lib/newsletter-blocks'
+import type { NewsletterBlock, TextBlock, LastNewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 
 interface Props {
   subject: string
   preheader: string
   blocks: NewsletterBlock[]
+  postsMap: Record<string, PostRef>
   onSubjectChange: (value: string) => void
   onPreheaderChange: (value: string) => void
   onUpdateBlock: (index: number, updated: NewsletterBlock) => void
@@ -22,13 +23,14 @@ export default function StudioCopilot({
   subject,
   preheader,
   blocks,
+  postsMap,
   onSubjectChange,
   onPreheaderChange,
   onUpdateBlock,
   onClose,
 }: Props) {
   const { messages, sending, error, send, markResolved, resolvedToolIds, reset } = useCopilotChat({
-    subject, preheader, blocks,
+    subject, preheader, blocks, postsMap,
   })
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)

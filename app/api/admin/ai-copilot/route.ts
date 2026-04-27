@@ -17,12 +17,16 @@ const MAX_TOKENS = 1024
 interface ClientBlock {
   id: string
   type: string
-  // Per-type interesting content. Only the editor-relevant fields are sent
-  // — we don't ship the whole post objects (those are in the blocks_json
-  // we'd persist) to keep prompt budget tight.
+  // Per-type editor-relevant fields. For hero/link-list we also pass the
+  // resolved post title + summary so the LLM has actual content to work
+  // with — without it, "subject suggestions" degenerate into echoing the
+  // slug back as a title.
   content?: string
   slug?: string
+  postTitle?: string
+  postSummary?: string
   slugs?: string[]
+  posts?: { slug: string; title?: string; summary?: string }[]
   recapLabel?: string
 }
 
@@ -106,7 +110,17 @@ REGELN — strikt befolgen:
 2. Wenn die Redaktion N Varianten oder N Vorschläge anfragt ("3 Varianten", "ein paar Subjects", "mehrere Optionen"), emittiere N separate Tool-Calls in derselben Antwort — einen pro Variante. Nicht "hier sind drei:" gefolgt von einem Tool-Call und Text — sondern wirklich N Tool-Calls.
 3. Dein Text-Output ist maximal 1 kurzer Satz als Einleitung ("Drei Varianten:", "Hier mein Vorschlag:"). KEINE Aufzählung der Vorschläge im Text — die kommen NUR über die Tools.
 4. Stelle nie Rückfragen wenn du genug Kontext hast. Schlage einfach vor.
-5. Du siehst den aktuellen Newsletter-Stand unten im System-Prompt. Beziehe dich konkret darauf.`
+5. Du siehst den aktuellen Newsletter-Stand unten im System-Prompt. Beziehe dich konkret darauf.
+
+SUBJECT-QUALITÄT (für update_subject):
+- Der Subject DARF NICHT einfach der Artikel-Titel sein. Wenn der Hero-Block den Titel "Wenn die Birke alles in Gelb taucht" hat, ist genau das ein VERBOTENER Vorschlag.
+- Finde stattdessen einen Hook: eine konkrete Zahl, eine Frage, ein überraschendes Detail aus der Zusammenfassung, ein persönlicher Bezug, ein Rätsel.
+- Idealer Subject ist 30-60 Zeichen, weckt Neugier ohne Clickbait, gibt einen Grund zum Öffnen den der Titel nicht schon liefert.
+- Wenn du nichts Besseres als den Titel hast, sage das im Text-Output und schlage NICHTS vor (kein Tool-Call) — frag dann nach mehr Kontext.
+
+PREHEADER-QUALITÄT (für update_preheader):
+- Der Preheader ergänzt den Subject, wiederholt ihn nicht. Maximal 110 Zeichen.
+- Liefert das Versprechen ein, das der Subject macht, oder bringt einen zweiten Hook.`
 
 export async function POST(request: Request) {
   const headers = { 'Content-Type': 'application/json' }
@@ -184,8 +198,13 @@ function formatStateForPrompt(state: CopilotRequest['state']): string {
         lines.push(`${label}\n      content: ${truncate(b.content ?? '', 600)}`)
       } else if (b.type === 'hero') {
         lines.push(`${label} slug=${b.slug ?? '(none)'}`)
+        if (b.postTitle) lines.push(`      Artikel-Titel: ${b.postTitle}`)
+        if (b.postSummary) lines.push(`      Artikel-Zusammenfassung: ${truncate(b.postSummary, 400)}`)
       } else if (b.type === 'link-list') {
-        lines.push(`${label} slugs=${(b.slugs ?? []).join(',') || '(none)'}`)
+        lines.push(`${label} (${(b.slugs ?? []).length} Links)`)
+        for (const p of b.posts ?? []) {
+          lines.push(`      - ${p.title ?? p.slug}: ${truncate(p.summary ?? '', 200)}`)
+        }
       } else if (b.type === 'last_newsletter') {
         lines.push(`${label} recapLabel=${b.recapLabel ?? '(default)'}`)
       } else {

@@ -320,6 +320,7 @@ export default function NewsletterStudio({
             subject={subject}
             preheader={preheader}
             blocks={blocks}
+            postsMap={postsMap}
             onSubjectChange={onSubjectChange}
             onPreheaderChange={onPreheaderChange}
             onUpdateBlock={onUpdateBlock}

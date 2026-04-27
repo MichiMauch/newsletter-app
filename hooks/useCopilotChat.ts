@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import type { NewsletterBlock } from '@/lib/newsletter-blocks'
+import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 
 export type ToolName =
   | 'update_subject'
@@ -33,6 +33,10 @@ interface UseCopilotChatInput {
   subject: string
   preheader: string
   blocks: NewsletterBlock[]
+  /** Slug → post lookup so hero/link-list blocks send title+summary,
+   *  not just the slug. Without this Claude tends to echo the slug-derived
+   *  title back as a "subject suggestion". */
+  postsMap: Record<string, PostRef>
 }
 
 const ASSISTANT_GREETING: ChatMessage = {
@@ -43,7 +47,7 @@ const ASSISTANT_GREETING: ChatMessage = {
   }],
 }
 
-export function useCopilotChat({ subject, preheader, blocks }: UseCopilotChatInput) {
+export function useCopilotChat({ subject, preheader, blocks, postsMap }: UseCopilotChatInput) {
   const [messages, setMessages] = useState<ChatMessage[]>([ASSISTANT_GREETING])
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,7 +72,7 @@ export function useCopilotChat({ subject, preheader, blocks }: UseCopilotChatInp
           state: {
             subject,
             preheader,
-            blocks: blocks.map(serializeBlock),
+            blocks: blocks.map((b) => serializeBlock(b, postsMap)),
           },
         }),
       })
@@ -83,7 +87,7 @@ export function useCopilotChat({ subject, preheader, blocks }: UseCopilotChatInp
     } finally {
       setSending(false)
     }
-  }, [messages, sending, subject, preheader, blocks])
+  }, [messages, sending, subject, preheader, blocks, postsMap])
 
   const markResolved = useCallback((toolUseId: string) => {
     setResolvedToolIds((prev) => {
@@ -102,14 +106,27 @@ export function useCopilotChat({ subject, preheader, blocks }: UseCopilotChatInp
   return { messages, sending, error, send, markResolved, resolvedToolIds, reset }
 }
 
-function serializeBlock(b: NewsletterBlock) {
+function serializeBlock(b: NewsletterBlock, postsMap: Record<string, PostRef>) {
   switch (b.type) {
     case 'text':
       return { id: b.id, type: b.type, content: b.content }
-    case 'hero':
-      return { id: b.id, type: b.type, slug: b.slug }
-    case 'link-list':
-      return { id: b.id, type: b.type, slugs: b.slugs }
+    case 'hero': {
+      const post = b.slug ? postsMap[b.slug] : undefined
+      return {
+        id: b.id,
+        type: b.type,
+        slug: b.slug,
+        postTitle: post?.title,
+        postSummary: post?.summary,
+      }
+    }
+    case 'link-list': {
+      const posts = b.slugs.map((s) => {
+        const p = postsMap[s]
+        return { slug: s, title: p?.title, summary: p?.summary }
+      })
+      return { id: b.id, type: b.type, slugs: b.slugs, posts }
+    }
     case 'last_newsletter':
       return { id: b.id, type: b.type, recapLabel: b.recapLabel }
     case 'recap_header':
