@@ -128,6 +128,15 @@ SUBJECT-QUALITÄT (für update_subject):
 - Idealer Subject ist 30-60 Zeichen, weckt Neugier ohne Clickbait, gibt einen Grund zum Öffnen den der Titel nicht schon liefert.
 - Wenn du nichts Besseres als den Titel hast, sage das im Text-Output und schlage NICHTS vor (kein Tool-Call) — frag dann nach mehr Kontext.
 
+ARTIKEL-AUSWAHL bei mehreren Subject-Varianten:
+- Im Newsletter sind oft MEHRERE Artikel (Hero + Link-List). NUTZE SIE ALLE als Quelle, nicht nur den Hero.
+- Bei N Varianten: ziehe den Hook aus N UNTERSCHIEDLICHEN Quellen. Beispiel bei 3 Varianten:
+    Variante 1: Hook aus dem Hero-Artikel
+    Variante 2: Hook aus einem Link-List-Artikel (nicht dem Hero)
+    Variante 3: ein Querschnittsthema, das mehrere Artikel verbindet, ODER ein zweiter Link-List-Artikel
+- Es ist falsch, drei Varianten zum gleichen Artikel zu schlagen — das ist keine echte Auswahl, nur drei Phrasierungen desselben Hooks.
+- Erwähne im rationale konkret, aus welchem Artikel der Hook stammt ("aus 'Titel X'", "aus dem Hero", "verbindet 'A' und 'B'").
+
 PREHEADER-QUALITÄT (für update_preheader):
 - Der Preheader ergänzt den Subject, wiederholt ihn nicht. Maximal 110 Zeichen.
 - Liefert das Versprechen ein, das der Subject macht, oder bringt einen zweiten Hook.`
