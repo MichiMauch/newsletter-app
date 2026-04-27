@@ -1,10 +1,64 @@
 import { redirect } from 'next/navigation'
-import { confirmSubscriber, getLastSendWithBlocks, getSubscriberByToken } from '@/lib/newsletter'
+import {
+  confirmSubscriber,
+  confirmSubscriberByEmail,
+  getLastSendWithBlocks,
+  getSubscriberByToken,
+} from '@/lib/newsletter'
 import { sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { enrollSubscriber } from '@/lib/automation'
 import { getContentItemsBySlugs } from '@/lib/content'
 import { getSiteConfig } from '@/lib/site-config'
+import { verifyConfirmToken } from '@/lib/confirm-token'
+import { eq, and } from 'drizzle-orm'
+import { getDb } from '@/lib/db'
+import { newsletterSubscribers } from '@/lib/schema'
 import type { NewsletterBlock } from '@/lib/newsletter-blocks'
+
+interface ResolvedSubscriber {
+  email: string
+  token: string
+  site_id: string
+}
+
+// Mit HMAC-Confirm-Token kennen wir nur (siteId, email). Wir brauchen aber
+// noch den stabilen Unsub-Token aus der DB für die Welcome-Mail-Footer.
+async function getSubscriberBySiteAndEmail(siteId: string, email: string): Promise<ResolvedSubscriber | null> {
+  const db = getDb()
+  const rows = await db
+    .select({
+      email: newsletterSubscribers.email,
+      token: newsletterSubscribers.token,
+      siteId: newsletterSubscribers.siteId,
+    })
+    .from(newsletterSubscribers)
+    .where(and(
+      eq(newsletterSubscribers.siteId, siteId),
+      eq(newsletterSubscribers.email, email.trim().toLowerCase()),
+    ))
+    .limit(1)
+  if (!rows[0]) return null
+  return { email: rows[0].email, token: rows[0].token, site_id: rows[0].siteId }
+}
+
+async function resolveAndConfirm(rawToken: string): Promise<ResolvedSubscriber | null> {
+  // 1) HMAC-signed confirm token (current path)
+  const verify = verifyConfirmToken(rawToken)
+  if (verify.ok) {
+    const flipped = await confirmSubscriberByEmail(verify.siteId, verify.email)
+    if (!flipped) return null
+    return await getSubscriberBySiteAndEmail(verify.siteId, verify.email)
+  }
+
+  // 2) Backward-compat: legacy DB-stored UUID token. Confirmation mails sent
+  //    before the HMAC switch have these in flight; old links must keep working
+  //    until pending-TTL (14d) has flushed them out.
+  const flipped = await confirmSubscriber(rawToken)
+  if (!flipped) return null
+  const subscriber = await getSubscriberByToken(rawToken)
+  if (!subscriber) return null
+  return subscriber
+}
 
 export default async function BestaetigungPage({
   searchParams,
@@ -17,13 +71,7 @@ export default async function BestaetigungPage({
     return <ErrorMessage />
   }
 
-  const confirmed = await confirmSubscriber(token)
-  if (!confirmed) {
-    return <ErrorMessage />
-  }
-
-  // Get subscriber info
-  const subscriber = await getSubscriberByToken(token)
+  const subscriber = await resolveAndConfirm(token)
   if (!subscriber) {
     return <ErrorMessage />
   }

@@ -59,6 +59,23 @@ export async function confirmSubscriber(token: string): Promise<boolean> {
   return (result.rowsAffected ?? 0) > 0
 }
 
+// Bestätigt einen Subscriber per (siteId, email) statt per Token. Wird vom
+// HMAC-basierten Confirm-Flow aufgerufen, nachdem das Token verifiziert wurde —
+// die Identifizierung des Subscribers steckt dann bereits im Token, nicht in
+// einer DB-Spalte.
+export async function confirmSubscriberByEmail(siteId: string, email: string): Promise<boolean> {
+  const db = getDb()
+  const normalized = email.trim().toLowerCase()
+  const result = await db.update(newsletterSubscribers)
+    .set({ status: 'confirmed', confirmedAt: sql`datetime('now')` })
+    .where(and(
+      eq(newsletterSubscribers.siteId, siteId),
+      eq(newsletterSubscribers.email, normalized),
+      eq(newsletterSubscribers.status, 'pending'),
+    ))
+  return (result.rowsAffected ?? 0) > 0
+}
+
 export async function unsubscribeByToken(token: string): Promise<boolean> {
   const db = getDb()
   const result = await db.run(sql`

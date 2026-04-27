@@ -14,6 +14,10 @@ import { config } from 'dotenv'
 
 config({ path: '.env.test' })
 
+// Deterministic test fallbacks — applied only if .env.test (gitignored) hasn't
+// already set them, so a fresh checkout / CI run is self-contained.
+process.env.CONFIRM_TOKEN_SECRET ??= 'e2e-deterministic-confirm-token-secret-32+chars'
+
 const PORT = process.env.PLAYWRIGHT_PORT ?? '3100'
 const ROOT = path.resolve(__dirname, '..')
 

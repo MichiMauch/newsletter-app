@@ -15,6 +15,7 @@ import {
   renderAlreadySubscribedEmail,
 } from './newsletter-render'
 import type { NewsletterBlock, PostRef } from './newsletter-blocks'
+import { createConfirmToken } from './confirm-token'
 
 function getResend() {
   return getResendClient()
@@ -62,8 +63,12 @@ export async function cancelResendEmail(resendEmailId: string): Promise<{ ok: bo
 
 // ─── Newsletter: Bestätigungs-E-Mail ──────────────────────────────────
 
-export async function sendConfirmationEmail(site: SiteConfig, data: { email: string; token: string }) {
-  const confirmUrl = `${siteUrlOf(site)}/newsletter/bestaetigen?token=${data.token}`
+export async function sendConfirmationEmail(
+  site: SiteConfig,
+  data: { email: string; unsubscribeToken: string },
+) {
+  const confirmToken = createConfirmToken(site.id, data.email)
+  const confirmUrl = `${siteUrlOf(site)}/newsletter/bestaetigen?token=${confirmToken}`
 
   try {
     const { html, text } = await renderConfirmationEmail({ site, confirmUrl })
@@ -74,9 +79,9 @@ export async function sendConfirmationEmail(site: SiteConfig, data: { email: str
         subject: `Bitte bestätige deine Newsletter-Anmeldung auf ${site.name}`,
         html,
         text,
-        headers: listUnsubscribeHeaders(site, data.token),
+        headers: listUnsubscribeHeaders(site, data.unsubscribeToken),
       },
-      { idempotencyKey: `confirm:${data.token}` },
+      { idempotencyKey: `confirm:${data.unsubscribeToken}` },
     )
     if (result.error) {
       throw new Error(`Resend: ${result.error.message}`)

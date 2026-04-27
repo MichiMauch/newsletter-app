@@ -78,7 +78,7 @@ export async function POST(request: Request) {
         console.error('[newsletter] already-subscribed email failed:', err),
       )
     } else {
-      sendConfirmationEmail(site, { email: normalized, token: result.token }).catch((err) =>
+      sendConfirmationEmail(site, { email: normalized, unsubscribeToken: result.token }).catch((err) =>
         console.error('[newsletter] confirmation email failed:', err),
       )
     }

@@ -53,4 +53,42 @@ test.describe('public subscribe flow', () => {
     const sends = sendsOnly(await readSentEmails(request))
     expect(sends).toHaveLength(0)
   })
+
+  test('clicking the confirmation link confirms the subscriber and redirects', async ({ request }) => {
+    // 1. Subscribe
+    const subRes = await request.post('/api/v1/subscribe', {
+      data: { email: 'confirm-flow@e2e.test' },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100' },
+    })
+    expect(subRes.ok()).toBeTruthy()
+
+    // 2. Extract confirm token from the captured mail
+    const sends = sendsOnly(await readSentEmails(request))
+    expect(sends).toHaveLength(1)
+    const html = String(sends[0].payload.html ?? '')
+    const match = html.match(/\/newsletter\/bestaetigen\?token=([^"&\s]+)/)
+    expect(match, 'confirm link with token must be present in mail').not.toBeNull()
+    const token = match![1]
+    // HMAC tokens are >40 chars (payload + 32-byte sig in base64url); UUIDs are 36
+    expect(token.length).toBeGreaterThan(36)
+
+    // 3. Hit the confirmation URL — must redirect to /newsletter/bestaetigt on success
+    const confirmRes = await request.get(`/newsletter/bestaetigen?token=${token}`, { maxRedirects: 0 })
+    expect(confirmRes.status()).toBe(307)
+    expect(confirmRes.headers()['location']).toContain('/newsletter/bestaetigt')
+
+    // 4. A second click must NOT re-confirm (idempotency: row is no longer 'pending')
+    //    The page renders ErrorMessage with status 200 instead of redirecting.
+    const reclickRes = await request.get(`/newsletter/bestaetigen?token=${token}`, { maxRedirects: 0 })
+    expect(reclickRes.status()).toBe(200)
+  })
+
+  test('clicking with a tampered token shows the error page', async ({ request }) => {
+    const res = await request.get('/newsletter/bestaetigen?token=this-is-not-a-valid-token', {
+      maxRedirects: 0,
+    })
+    expect(res.status()).toBe(200) // ErrorMessage page, not a redirect
+    const body = await res.text()
+    expect(body).toMatch(/Ungültiger Link/)
+  })
 })
