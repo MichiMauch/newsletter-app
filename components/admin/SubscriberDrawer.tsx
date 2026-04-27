@@ -14,6 +14,10 @@ interface ProfilePayload {
     createdAt: string
     confirmedAt: string | null
     unsubscribedAt: string | null
+    subscribedIp: string | null
+    subscribedUserAgent: string | null
+    confirmedIp: string | null
+    confirmedUserAgent: string | null
   }
   engagement: {
     score: number
@@ -232,6 +236,23 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
                 )}
               </Section>
 
+              {(profile.subscriber.subscribedIp || profile.subscriber.confirmedIp) && (
+                <Section title="Einwilligungs-Nachweis (DSGVO Art. 7.1)">
+                  {profile.subscriber.subscribedIp && (
+                    <KV label="Anmeldung IP" value={profile.subscriber.subscribedIp} />
+                  )}
+                  {profile.subscriber.subscribedUserAgent && (
+                    <UAField label="Anmeldung Browser" value={profile.subscriber.subscribedUserAgent} />
+                  )}
+                  {profile.subscriber.confirmedIp && (
+                    <KV label="Bestätigung IP" value={profile.subscriber.confirmedIp} />
+                  )}
+                  {profile.subscriber.confirmedUserAgent && (
+                    <UAField label="Bestätigung Browser" value={profile.subscriber.confirmedUserAgent} />
+                  )}
+                </Section>
+              )}
+
               {profile.engagement && (
                 <Section title="Engagement (90 Tage)">
                   <div className="grid grid-cols-3 gap-3">
@@ -347,6 +368,17 @@ function KV({ label, value }: { label: string; value: string }) {
     <div className="flex items-baseline justify-between gap-3 py-0.5 text-sm">
       <span className="text-[var(--text-secondary)]">{label}</span>
       <span className="text-right text-[var(--text)] tabular-nums">{value}</span>
+    </div>
+  )
+}
+
+// User-Agent strings are long — render in a wrapping monospace block instead
+// of forcing them onto one line where they overflow the drawer.
+function UAField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="py-1 text-sm">
+      <div className="text-[var(--text-secondary)]">{label}</div>
+      <div className="mt-0.5 break-all font-mono text-[11px] text-[var(--text)]">{value}</div>
     </div>
   )
 }

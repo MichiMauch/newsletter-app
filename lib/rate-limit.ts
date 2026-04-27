@@ -83,18 +83,22 @@ export async function checkRateLimit(
  * many positions from the right.
  */
 export function getClientIp(request: Request): string {
+  return getClientIpFromHeaders((name) => request.headers.get(name))
+}
+
+// Same trusted-proxy logic as getClientIp(), but works against any header
+// source — used from Server Components where there is no Request object.
+export function getClientIpFromHeaders(getHeader: (name: string) => string | null | undefined): string {
   const hops = parseTrustedHops(process.env.TRUSTED_PROXY_HOPS)
 
-  const xff = request.headers.get('x-forwarded-for')
+  const xff = getHeader('x-forwarded-for')
   if (xff) {
     const parts = xff.split(',').map((s) => s.trim()).filter(Boolean)
-    // pick the (hops)-th entry from the right; 1 hop ⇒ last entry
     const idx = parts.length - hops
     if (idx >= 0 && parts[idx]) return parts[idx]
   }
 
-  // x-real-ip is single-valued — also platform-set, safer than left-XFF
-  const realIp = request.headers.get('x-real-ip')?.trim()
+  const realIp = getHeader('x-real-ip')?.trim()
   if (realIp) return realIp
 
   return 'unknown'

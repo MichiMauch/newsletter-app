@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { clearSentEmails, readSentEmails, sendsOnly } from './helpers'
+import { clearSentEmails, loginAsAdmin, readSentEmails, sendsOnly } from './helpers'
 
 test.describe('public subscribe flow', () => {
   test.beforeEach(async ({ request }) => {
@@ -90,5 +90,43 @@ test.describe('public subscribe flow', () => {
     expect(res.status()).toBe(200) // ErrorMessage page, not a redirect
     const body = await res.text()
     expect(body).toMatch(/Ungültiger Link/)
+  })
+
+  test('subscribe + confirm record IP and User-Agent for GDPR Art. 7.1', async ({ request }) => {
+    const email = `gdpr-trail-${Date.now()}@e2e.test`
+    const userAgent = 'Mozilla/5.0 (compat; e2e-gdpr-trail-probe)'
+
+    // 1. Subscribe with a recognizable User-Agent
+    const subRes = await request.post('/api/v1/subscribe', {
+      data: { email },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100', 'User-Agent': userAgent },
+    })
+    expect(subRes.ok()).toBeTruthy()
+
+    // 2. Pull the captured confirm link
+    const sends = sendsOnly(await readSentEmails(request))
+    const sent = sends[sends.length - 1]
+    const html = String(sent.payload.html ?? '')
+    const match = html.match(/\/newsletter\/bestaetigen\?token=([^"&\s]+)/)
+    expect(match).not.toBeNull()
+    const token = match![1]
+
+    // 3. Confirm with a different User-Agent so we can tell the two apart
+    const confirmUA = 'Mozilla/5.0 (compat; e2e-gdpr-trail-confirm)'
+    const confirmRes = await request.get(`/newsletter/bestaetigen?token=${token}`, {
+      headers: { 'User-Agent': confirmUA },
+      maxRedirects: 0,
+    })
+    expect(confirmRes.status()).toBe(307)
+
+    // 4. Inspect the admin profile and verify both trails landed
+    await loginAsAdmin(request)
+    const profileRes = await request.get(`/api/admin/subscriber?email=${encodeURIComponent(email)}`)
+    expect(profileRes.ok()).toBeTruthy()
+    const profile = await profileRes.json()
+    expect(profile.subscriber.subscribedIp, 'subscribed_ip must be populated').toBeTruthy()
+    expect(profile.subscriber.subscribedUserAgent).toBe(userAgent)
+    expect(profile.subscriber.confirmedIp, 'confirmed_ip must be populated').toBeTruthy()
+    expect(profile.subscriber.confirmedUserAgent).toBe(confirmUA)
   })
 })

@@ -51,6 +51,13 @@ export const newsletterSubscribers = sqliteTable('newsletter_subscribers', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   confirmedAt: text('confirmed_at'),
   unsubscribedAt: text('unsubscribed_at'),
+  // GDPR Art. 7.1 "Nachweis der Einwilligung": IP + UA at signup and again at
+  // confirmation. Lets the operator prove the subscriber actively opted in if
+  // a complaint arises. Nullable for legacy rows and bulk-import paths.
+  subscribedIp: text('subscribed_ip'),
+  subscribedUserAgent: text('subscribed_user_agent'),
+  confirmedIp: text('confirmed_ip'),
+  confirmedUserAgent: text('confirmed_user_agent'),
 }, (table) => [
   uniqueIndex('idx_sub_site_email').on(table.siteId, table.email),
   index('idx_sub_site').on(table.siteId),

@@ -1,15 +1,18 @@
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import {
   confirmSubscriber,
   confirmSubscriberByEmail,
   getLastSendWithBlocks,
   getSubscriberByToken,
+  type ComplianceContext,
 } from '@/lib/newsletter'
 import { sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { enrollSubscriber } from '@/lib/automation'
 import { getContentItemsBySlugs } from '@/lib/content'
 import { getSiteConfig } from '@/lib/site-config'
 import { verifyConfirmToken } from '@/lib/confirm-token'
+import { getClientIpFromHeaders } from '@/lib/rate-limit'
 import { eq, and } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { newsletterSubscribers } from '@/lib/schema'
@@ -41,11 +44,11 @@ async function getSubscriberBySiteAndEmail(siteId: string, email: string): Promi
   return { email: rows[0].email, token: rows[0].token, site_id: rows[0].siteId }
 }
 
-async function resolveAndConfirm(rawToken: string): Promise<ResolvedSubscriber | null> {
+async function resolveAndConfirm(rawToken: string, ctx: ComplianceContext): Promise<ResolvedSubscriber | null> {
   // 1) HMAC-signed confirm token (current path)
   const verify = verifyConfirmToken(rawToken)
   if (verify.ok) {
-    const flipped = await confirmSubscriberByEmail(verify.siteId, verify.email)
+    const flipped = await confirmSubscriberByEmail(verify.siteId, verify.email, ctx)
     if (!flipped) return null
     return await getSubscriberBySiteAndEmail(verify.siteId, verify.email)
   }
@@ -53,7 +56,7 @@ async function resolveAndConfirm(rawToken: string): Promise<ResolvedSubscriber |
   // 2) Backward-compat: legacy DB-stored UUID token. Confirmation mails sent
   //    before the HMAC switch have these in flight; old links must keep working
   //    until pending-TTL (14d) has flushed them out.
-  const flipped = await confirmSubscriber(rawToken)
+  const flipped = await confirmSubscriber(rawToken, ctx)
   if (!flipped) return null
   const subscriber = await getSubscriberByToken(rawToken)
   if (!subscriber) return null
@@ -71,7 +74,13 @@ export default async function BestaetigungPage({
     return <ErrorMessage />
   }
 
-  const subscriber = await resolveAndConfirm(token)
+  const h = await headers()
+  const complianceCtx: ComplianceContext = {
+    ip: getClientIpFromHeaders((name) => h.get(name)),
+    userAgent: h.get('user-agent'),
+  }
+
+  const subscriber = await resolveAndConfirm(token, complianceCtx)
   if (!subscriber) {
     return <ErrorMessage />
   }

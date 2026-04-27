@@ -70,7 +70,8 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: 'Zu viele Anfragen. Bitte versuche es später erneut.' }), { status: 429, headers })
     }
 
-    const result = await createSubscriber(siteId, normalized)
+    const userAgent = request.headers.get('user-agent') ?? null
+    const result = await createSubscriber(siteId, normalized, { ip, userAgent })
     const site = await getSiteConfig(siteId)
 
     if (result.alreadyConfirmed) {

@@ -13,9 +13,20 @@ export interface SubscriberEnriched extends Subscriber {
   tags: string[]
 }
 
-export async function createSubscriber(siteId: string, email: string): Promise<{ token: string; alreadyConfirmed: boolean }> {
+export interface ComplianceContext {
+  ip?: string | null
+  userAgent?: string | null
+}
+
+export async function createSubscriber(
+  siteId: string,
+  email: string,
+  ctx?: ComplianceContext,
+): Promise<{ token: string; alreadyConfirmed: boolean }> {
   const db = getDb()
   const token = crypto.randomUUID()
+  const subscribedIp = ctx?.ip ?? null
+  const subscribedUserAgent = ctx?.userAgent ?? null
 
   const existing = await db.select({
     id: newsletterSubscribers.id,
@@ -34,27 +45,51 @@ export async function createSubscriber(siteId: string, email: string): Promise<{
     }
 
     if (status === 'unsubscribed') {
+      // Re-subscribe: reset opt-in trail. Old IP/UA from a previous lifecycle
+      // would be misleading — the new signup is the relevant consent event.
       await db.update(newsletterSubscribers)
-        .set({ status: 'pending', token, unsubscribedAt: null })
+        .set({
+          status: 'pending',
+          token,
+          unsubscribedAt: null,
+          subscribedIp,
+          subscribedUserAgent,
+          confirmedAt: null,
+          confirmedIp: null,
+          confirmedUserAgent: null,
+        })
         .where(and(eq(newsletterSubscribers.siteId, siteId), eq(newsletterSubscribers.email, email)))
       return { token, alreadyConfirmed: false }
     }
 
-    // Status is pending — regenerate token
+    // Status is pending — regenerate token but refresh consent trail too,
+    // since the user just acted again.
     await db.update(newsletterSubscribers)
-      .set({ token })
+      .set({ token, subscribedIp, subscribedUserAgent })
       .where(and(eq(newsletterSubscribers.siteId, siteId), eq(newsletterSubscribers.email, email)))
     return { token, alreadyConfirmed: false }
   }
 
-  await db.insert(newsletterSubscribers).values({ siteId, email, status: 'pending', token })
+  await db.insert(newsletterSubscribers).values({
+    siteId,
+    email,
+    status: 'pending',
+    token,
+    subscribedIp,
+    subscribedUserAgent,
+  })
   return { token, alreadyConfirmed: false }
 }
 
-export async function confirmSubscriber(token: string): Promise<boolean> {
+export async function confirmSubscriber(token: string, ctx?: ComplianceContext): Promise<boolean> {
   const db = getDb()
   const result = await db.update(newsletterSubscribers)
-    .set({ status: 'confirmed', confirmedAt: sql`datetime('now')` })
+    .set({
+      status: 'confirmed',
+      confirmedAt: sql`datetime('now')`,
+      confirmedIp: ctx?.ip ?? null,
+      confirmedUserAgent: ctx?.userAgent ?? null,
+    })
     .where(and(eq(newsletterSubscribers.token, token), eq(newsletterSubscribers.status, 'pending')))
   return (result.rowsAffected ?? 0) > 0
 }
@@ -63,11 +98,20 @@ export async function confirmSubscriber(token: string): Promise<boolean> {
 // HMAC-basierten Confirm-Flow aufgerufen, nachdem das Token verifiziert wurde —
 // die Identifizierung des Subscribers steckt dann bereits im Token, nicht in
 // einer DB-Spalte.
-export async function confirmSubscriberByEmail(siteId: string, email: string): Promise<boolean> {
+export async function confirmSubscriberByEmail(
+  siteId: string,
+  email: string,
+  ctx?: ComplianceContext,
+): Promise<boolean> {
   const db = getDb()
   const normalized = email.trim().toLowerCase()
   const result = await db.update(newsletterSubscribers)
-    .set({ status: 'confirmed', confirmedAt: sql`datetime('now')` })
+    .set({
+      status: 'confirmed',
+      confirmedAt: sql`datetime('now')`,
+      confirmedIp: ctx?.ip ?? null,
+      confirmedUserAgent: ctx?.userAgent ?? null,
+    })
     .where(and(
       eq(newsletterSubscribers.siteId, siteId),
       eq(newsletterSubscribers.email, normalized),
@@ -99,6 +143,7 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
   const rows = await db.run(sql`
     SELECT
       s.id, s.site_id, s.email, s.status, s.token, s.created_at, s.confirmed_at, s.unsubscribed_at,
+      s.subscribed_ip, s.subscribed_user_agent, s.confirmed_ip, s.confirmed_user_agent,
       se.score AS engagement_score, se.tier AS engagement_tier,
       (
         SELECT GROUP_CONCAT(t.tag, '||')
@@ -120,6 +165,10 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
     createdAt: r.created_at as string,
     confirmedAt: (r.confirmed_at as string | null) ?? null,
     unsubscribedAt: (r.unsubscribed_at as string | null) ?? null,
+    subscribedIp: (r.subscribed_ip as string | null) ?? null,
+    subscribedUserAgent: (r.subscribed_user_agent as string | null) ?? null,
+    confirmedIp: (r.confirmed_ip as string | null) ?? null,
+    confirmedUserAgent: (r.confirmed_user_agent as string | null) ?? null,
     engagement_score: (r.engagement_score as number | null) ?? null,
     engagement_tier: (r.engagement_tier as SubscriberEnriched['engagement_tier']) ?? null,
     tags: r.tags_concat ? (r.tags_concat as string).split('||') : [],
