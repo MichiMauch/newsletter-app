@@ -21,6 +21,7 @@ import TemplateBuilder from './TemplateBuilder'
 import EngagementPanel from './EngagementPanel'
 import InsertToolbar from './InsertToolbar'
 import { DraggablePostItem, SlotCard } from './DragDropSlots'
+import SubjectScoreBadge from './SubjectScoreBadge'
 
 type ComposeApi = ReturnType<typeof useComposeState>
 
@@ -407,6 +408,11 @@ function FillSlotsView({
                 {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
               </button>
             </div>
+            {subject.trim() !== '' && (
+              <div className="mt-1.5 ml-7">
+                <SubjectScoreBadge subject={subject} label={abTestEnabled ? 'A' : undefined} />
+              </div>
+            )}
             {abTestEnabled && (
               <div className="mt-2 flex gap-2">
                 <span className="flex shrink-0 items-center justify-center rounded bg-[var(--bg-secondary)] px-2 text-xs font-bold text-[var(--text)]">B</span>
@@ -433,6 +439,11 @@ function FillSlotsView({
                   )}
                   {generatingSubject ? 'Generiere…' : 'Mit AI ausfüllen'}
                 </button>
+              </div>
+            )}
+            {abTestEnabled && subjectVariantB.trim() !== '' && (
+              <div className="mt-1.5 ml-7">
+                <SubjectScoreBadge subject={subjectVariantB} label="B" />
               </div>
             )}
           </div>

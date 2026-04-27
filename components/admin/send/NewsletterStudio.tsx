@@ -9,6 +9,7 @@ import type { Post } from '../types'
 import { DraggablePostItem, SlotCard } from './DragDropSlots'
 import InsertToolbar from './InsertToolbar'
 import PlaceholderMenu from '../../PlaceholderMenu'
+import SubjectScoreBadge from './SubjectScoreBadge'
 
 // Inserts `text` at the input's current cursor position and re-focuses it
 // with the cursor right after the inserted snippet. Used to drop placeholders
@@ -138,6 +139,11 @@ export default function NewsletterStudio({
               <span>AI</span>
             </button>
           </div>
+          {subject.trim() !== '' && (
+            <div className="-mt-0.5 ml-7 flex">
+              <SubjectScoreBadge subject={subject} label={abTestEnabled ? 'A' : undefined} />
+            </div>
+          )}
           {abTestEnabled && (
             <div className="flex items-center gap-2">
               <span className="shrink-0 rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text)]">B</span>
@@ -170,6 +176,11 @@ export default function NewsletterStudio({
                 )}
                 <span>AI</span>
               </button>
+            </div>
+          )}
+          {abTestEnabled && subjectVariantB.trim() !== '' && (
+            <div className="-mt-0.5 ml-7 flex">
+              <SubjectScoreBadge subject={subjectVariantB} label="B" />
             </div>
           )}
           <div className="flex items-center gap-2">
