@@ -3,20 +3,16 @@ import { headers } from 'next/headers'
 import {
   confirmSubscriber,
   confirmSubscriberByEmail,
-  getLastSendWithBlocks,
   getSubscriberByToken,
   type ComplianceContext,
 } from '@/lib/newsletter'
-import { sendMultiBlockNewsletterEmail } from '@/lib/notify'
 import { enrollSubscriber } from '@/lib/automation'
-import { getContentItemsBySlugs } from '@/lib/content'
 import { getSiteConfig } from '@/lib/site-config'
 import { verifyConfirmToken } from '@/lib/confirm-token'
 import { getClientIpFromHeaders } from '@/lib/rate-limit'
 import { eq, and } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { newsletterSubscribers } from '@/lib/schema'
-import type { NewsletterBlock } from '@/lib/newsletter-blocks'
 
 interface ResolvedSubscriber {
   email: string
@@ -88,42 +84,9 @@ export default async function BestaetigungPage({
   const siteId = subscriber.site_id
   const site = await getSiteConfig(siteId)
 
-  // Send welcome email with last newsletter
-  const lastSend = await getLastSendWithBlocks(siteId)
-  if (lastSend) {
-    try {
-      const blocks: NewsletterBlock[] = JSON.parse(lastSend.blocks_json)
-      const slugs = new Set<string>()
-      for (const block of blocks) {
-        if (block.type === 'hero') slugs.add(block.slug)
-        if (block.type === 'link-list') block.slugs.forEach((s) => slugs.add(s))
-      }
-
-      const postsMap = await getContentItemsBySlugs(siteId, [...slugs])
-
-      if (Object.keys(postsMap).length === 0) {
-        console.warn(`[bestaetigen] postsMap empty for slugs: ${[...slugs].join(', ')} (siteId=${siteId})`)
-      }
-
-      // Prepend welcome text block
-      const welcomeBlocks: NewsletterBlock[] = [
-        { id: 'welcome', type: 'text', content: `Willkommen bei ${site.name}! 🎉\n\nSchön, dass du dabei bist. Hier ist unser letzter Newsletter:` },
-        ...blocks,
-      ]
-
-      await sendMultiBlockNewsletterEmail(site, {
-        email: subscriber.email,
-        unsubscribeToken: subscriber.token,
-        subject: `Willkommen bei ${site.name} 🏠`,
-        blocks: welcomeBlocks,
-        postsMap,
-      })
-    } catch (err) {
-      console.error('[bestaetigen] Failed to send welcome email:', err)
-    }
-  }
-
-  // Enroll in active automations
+  // Welcome / last-newsletter delivery is handled by the automation system
+  // (trigger: subscriber_confirmed). Any delays configured in the automation
+  // graph are honored by the cron processor.
   await enrollSubscriber(siteId, subscriber.email, 'subscriber_confirmed')
 
   // The token rides along so the welcome page can offer the optional
