@@ -18,6 +18,7 @@ interface ProfilePayload {
     subscribedUserAgent: string | null
     confirmedIp: string | null
     confirmedUserAgent: string | null
+    firstName: string | null
   }
   engagement: {
     score: number
@@ -229,6 +230,9 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
           ) : (
             <div className="space-y-6 p-5">
               <Section title="Anmeldung">
+                {profile.subscriber.firstName && (
+                  <KV label="Vorname" value={profile.subscriber.firstName} />
+                )}
                 <KV label="Angemeldet" value={formatDate(profile.subscriber.createdAt)} />
                 <KV label="Bestätigt" value={profile.subscriber.confirmedAt ? formatDate(profile.subscriber.confirmedAt) : '—'} />
                 {profile.subscriber.unsubscribedAt && (

@@ -211,6 +211,7 @@ async function executeEmail(
     subject,
     blocks,
     postsMap,
+    firstName: subscriber.firstName,
   })
 
   // Record to both automation_node_executions + legacy email_automation_sends (webhook compat)
@@ -270,6 +271,7 @@ async function executeLastNewsletter(
     preheader,
     blocks,
     postsMap,
+    firstName: subscriber.firstName,
   })
 
   await recordNodeExecution(run.enrollment_id, node.id, 'completed', {

@@ -16,6 +16,7 @@ import {
 } from './newsletter-render'
 import type { NewsletterBlock, PostRef } from './newsletter-blocks'
 import { createConfirmToken } from './confirm-token'
+import { substitutePersonalization } from './personalization'
 
 function getResend() {
   return getResendClient()
@@ -180,11 +181,13 @@ export async function sendMultiBlockNewsletterEmail(
     preheader?: string | null
     blocks: NewsletterBlock[]
     postsMap: Record<string, PostRef>
+    firstName?: string | null // for {{firstName}} substitution in subject/preheader/body
     scheduledAt?: string // ISO-8601, an Resend durchgereicht für Send-Time Optimization
     sendId?: number // für deterministischen idempotencyKey beim Newsletter-Versand
   },
 ): Promise<{ resendEmailId: string | null }> {
   const unsubscribeUrl = unsubscribePageUrl(site, data.unsubscribeToken)
+  const personalize = (s: string) => substitutePersonalization(s, { firstName: data.firstName ?? null })
 
   try {
     const props = {
@@ -211,9 +214,9 @@ export async function sendMultiBlockNewsletterEmail(
       {
         from: fromAddress(site),
         to: data.email,
-        subject: data.subject,
-        html,
-        text,
+        subject: personalize(data.subject),
+        html: personalize(html),
+        text: personalize(text),
         headers: listUnsubscribeHeaders(site, data.unsubscribeToken),
         ...(data.scheduledAt ? { scheduledAt: data.scheduledAt } : {}),
       },

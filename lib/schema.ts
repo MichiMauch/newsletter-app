@@ -58,6 +58,9 @@ export const newsletterSubscribers = sqliteTable('newsletter_subscribers', {
   subscribedUserAgent: text('subscribed_user_agent'),
   confirmedIp: text('confirmed_ip'),
   confirmedUserAgent: text('confirmed_user_agent'),
+  // Optional first name, captured on the post-confirmation welcome page so
+  // newsletters can greet by name via the `{{firstName}}` template token.
+  firstName: text('first_name'),
 }, (table) => [
   uniqueIndex('idx_sub_site_email').on(table.siteId, table.email),
   index('idx_sub_site').on(table.siteId),

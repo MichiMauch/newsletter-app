@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test'
 import { clearSentEmails, loginAsAdmin, readSentEmails, sendsOnly } from './helpers'
 
+// Subscribe is rate-limited per IP (5/h). Tests that share the default IP
+// would fail intermittently as the suite grows — pin a unique XFF per request.
+function uniqueIp() {
+  return `10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`
+}
+
 test.describe('public subscribe flow', () => {
   test.beforeEach(async ({ request }) => {
     await clearSentEmails(request)
@@ -58,7 +64,11 @@ test.describe('public subscribe flow', () => {
     // 1. Subscribe
     const subRes = await request.post('/api/v1/subscribe', {
       data: { email: 'confirm-flow@e2e.test' },
-      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100' },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://127.0.0.1:3100',
+        'X-Forwarded-For': `10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
+      },
     })
     expect(subRes.ok()).toBeTruthy()
 
@@ -92,6 +102,77 @@ test.describe('public subscribe flow', () => {
     expect(body).toMatch(/Ungültiger Link/)
   })
 
+  test('confirm redirect carries the unsubscribe token to the welcome page', async ({ request }) => {
+    const subRes = await request.post('/api/v1/subscribe', {
+      data: { email: 'name-flow@e2e.test' },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://127.0.0.1:3100',
+        'X-Forwarded-For': `10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
+      },
+    })
+    expect(subRes.ok()).toBeTruthy()
+
+    const sends = sendsOnly(await readSentEmails(request))
+    const html = String(sends[sends.length - 1].payload.html ?? '')
+    const match = html.match(/\/newsletter\/bestaetigen\?token=([^"&\s]+)/)
+    expect(match).not.toBeNull()
+
+    const confirmRes = await request.get(`/newsletter/bestaetigen?token=${match![1]}`, {
+      maxRedirects: 0,
+    })
+    expect(confirmRes.status()).toBe(307)
+    const location = confirmRes.headers()['location']
+    expect(location).toContain('/newsletter/bestaetigt')
+    expect(location).toContain('token=')
+    expect(location).toContain('site=')
+  })
+
+  test('POST /api/v1/profile saves the first name and admin can read it back', async ({ request }) => {
+    const email = `firstname-${Date.now()}@e2e.test`
+
+    // 1. Sign up + extract confirm token
+    await request.post('/api/v1/subscribe', {
+      data: { email },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100', 'X-Forwarded-For': uniqueIp() },
+    })
+    const sends = sendsOnly(await readSentEmails(request))
+    const confirmTokenMatch = String(sends[sends.length - 1].payload.html ?? '')
+      .match(/\/newsletter\/bestaetigen\?token=([^"&\s]+)/)
+    expect(confirmTokenMatch).not.toBeNull()
+
+    // 2. Confirm — redirect URL contains the unsubscribe token in `?token=...`
+    const confirmRes = await request.get(`/newsletter/bestaetigen?token=${confirmTokenMatch![1]}`, {
+      maxRedirects: 0,
+    })
+    const location = confirmRes.headers()['location']
+    const unsubTokenMatch = location.match(/[?&]token=([^&]+)/)
+    expect(unsubTokenMatch).not.toBeNull()
+    const unsubToken = decodeURIComponent(unsubTokenMatch![1])
+
+    // 3. Submit first name via the new profile endpoint
+    const saveRes = await request.post('/api/v1/profile', {
+      data: { token: unsubToken, firstName: 'Sibylle' },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100' },
+    })
+    expect(saveRes.ok()).toBeTruthy()
+
+    // 4. Admin sees the first name in the subscriber profile
+    await loginAsAdmin(request)
+    const profileRes = await request.get(`/api/admin/subscriber?email=${encodeURIComponent(email)}`)
+    expect(profileRes.ok()).toBeTruthy()
+    const profile = await profileRes.json()
+    expect(profile.subscriber.firstName).toBe('Sibylle')
+  })
+
+  test('POST /api/v1/profile rejects names with HTML/control characters', async ({ request }) => {
+    const res = await request.post('/api/v1/profile', {
+      data: { token: 't-alice', firstName: '<script>alert(1)</script>' },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100' },
+    })
+    expect(res.status()).toBe(400)
+  })
+
   test('subscribe + confirm record IP and User-Agent for GDPR Art. 7.1', async ({ request }) => {
     const email = `gdpr-trail-${Date.now()}@e2e.test`
     const userAgent = 'Mozilla/5.0 (compat; e2e-gdpr-trail-probe)'
@@ -99,7 +180,12 @@ test.describe('public subscribe flow', () => {
     // 1. Subscribe with a recognizable User-Agent
     const subRes = await request.post('/api/v1/subscribe', {
       data: { email },
-      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100', 'User-Agent': userAgent },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://127.0.0.1:3100',
+        'User-Agent': userAgent,
+        'X-Forwarded-For': uniqueIp(),
+      },
     })
     expect(subRes.ok()).toBeTruthy()
 

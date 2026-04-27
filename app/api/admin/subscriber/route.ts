@@ -24,6 +24,7 @@ interface SubscriberProfile {
     subscribedUserAgent: string | null
     confirmedIp: string | null
     confirmedUserAgent: string | null
+    firstName: string | null
   }
   engagement: {
     score: number
@@ -119,6 +120,7 @@ export async function GET(request: Request) {
         subscribedUserAgent: sub.subscribedUserAgent ?? null,
         confirmedIp: sub.confirmedIp ?? null,
         confirmedUserAgent: sub.confirmedUserAgent ?? null,
+        firstName: sub.firstName ?? null,
       },
       engagement,
       tags: tagRows.map((r) => r.tag),

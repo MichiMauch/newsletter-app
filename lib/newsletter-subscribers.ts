@@ -144,6 +144,7 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
     SELECT
       s.id, s.site_id, s.email, s.status, s.token, s.created_at, s.confirmed_at, s.unsubscribed_at,
       s.subscribed_ip, s.subscribed_user_agent, s.confirmed_ip, s.confirmed_user_agent,
+      s.first_name,
       se.score AS engagement_score, se.tier AS engagement_tier,
       (
         SELECT GROUP_CONCAT(t.tag, '||')
@@ -169,6 +170,7 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
     subscribedUserAgent: (r.subscribed_user_agent as string | null) ?? null,
     confirmedIp: (r.confirmed_ip as string | null) ?? null,
     confirmedUserAgent: (r.confirmed_user_agent as string | null) ?? null,
+    firstName: (r.first_name as string | null) ?? null,
     engagement_score: (r.engagement_score as number | null) ?? null,
     engagement_tier: (r.engagement_tier as SubscriberEnriched['engagement_tier']) ?? null,
     tags: r.tags_concat ? (r.tags_concat as string).split('||') : [],
@@ -192,9 +194,16 @@ export async function getSubscriberByToken(token: string): Promise<{ email: stri
   return rows[0] ?? null
 }
 
-export async function getSubscriberByEmail(siteId: string, email: string): Promise<{ email: string; token: string } | null> {
+export async function getSubscriberByEmail(
+  siteId: string,
+  email: string,
+): Promise<{ email: string; token: string; firstName: string | null } | null> {
   const db = getDb()
-  const rows = await db.select({ email: newsletterSubscribers.email, token: newsletterSubscribers.token })
+  const rows = await db.select({
+    email: newsletterSubscribers.email,
+    token: newsletterSubscribers.token,
+    firstName: newsletterSubscribers.firstName,
+  })
     .from(newsletterSubscribers)
     .where(and(eq(newsletterSubscribers.siteId, siteId), eq(newsletterSubscribers.email, email), eq(newsletterSubscribers.status, 'confirmed')))
     .limit(1)
@@ -242,6 +251,39 @@ export async function getSubscribersByTagSignal(
 export async function deleteSubscriber(id: number): Promise<void> {
   const db = getDb()
   await db.delete(newsletterSubscribers).where(eq(newsletterSubscribers.id, id))
+}
+
+// Sets the optional first name. Token is the subscriber's stable unsubscribe
+// token — we accept the same trade-off the unsubscribe link makes (anyone with
+// the token can unsub, so being able to edit a display-only first name is no
+// worse). The proper fix lives in the Preference-Center issue (af8) where the
+// edit capability moves to its own scoped HMAC token.
+export async function updateFirstName(token: string, firstName: string | null): Promise<boolean> {
+  const db = getDb()
+  const trimmed = firstName === null ? null : firstName.trim().slice(0, 100)
+  const value = trimmed === '' ? null : trimmed
+  const result = await db.update(newsletterSubscribers)
+    .set({ firstName: value })
+    .where(eq(newsletterSubscribers.token, token))
+  return (result.rowsAffected ?? 0) > 0
+}
+
+// Batch-loads first names for a set of emails — used at send fan-out time to
+// substitute {{firstName}} in the rendered email without N+1 lookups.
+export async function getFirstNamesByEmails(
+  siteId: string,
+  emails: string[],
+): Promise<Map<string, string | null>> {
+  if (emails.length === 0) return new Map()
+  const db = getDb()
+  const rows = await db
+    .select({ email: newsletterSubscribers.email, firstName: newsletterSubscribers.firstName })
+    .from(newsletterSubscribers)
+    .where(and(
+      eq(newsletterSubscribers.siteId, siteId),
+      inArray(newsletterSubscribers.email, emails),
+    ))
+  return new Map(rows.map((r) => [r.email, r.firstName ?? null]))
 }
 
 // Loescht pending Subscriber, deren Anmeldung laenger als maxAgeDays zurueckliegt.

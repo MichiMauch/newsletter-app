@@ -17,7 +17,7 @@ import { getOptimalSendTime } from './send-time-optimization'
 import { sendMultiBlockNewsletterEmail, cancelResendEmail } from './notify'
 import { getContentItemsBySlugs } from './content'
 import { getSiteConfig } from './site-config'
-import { getSendForRetry, getVariantsForSend, markScheduledSendAsSent, updateRecipientResendId } from './newsletter'
+import { getFirstNamesByEmails, getSendForRetry, getVariantsForSend, markScheduledSendAsSent, updateRecipientResendId } from './newsletter'
 import type { NewsletterBlock } from './newsletter-blocks'
 
 const PUSH_HORIZON_HOURS = 1 // Slots innerhalb der nächsten Stunde direkt schieben
@@ -208,6 +208,7 @@ export async function pushDueSendsToResend(): Promise<{
     let preheader: string | null
     let postsMap: Record<string, import('./newsletter-blocks').PostRef>
     let variantSubjects: Map<string, string> | null = null
+    let firstNames: Map<string, string | null> = new Map()
 
     try {
       const sendData = await getSendForRetry(sendId)
@@ -231,6 +232,7 @@ export async function pushDueSendsToResend(): Promise<{
       if (variants.length > 0) {
         variantSubjects = new Map(variants.map((v) => [v.label, v.subject]))
       }
+      firstNames = await getFirstNamesByEmails(siteId, group.map((r) => r.email))
     } catch (err) {
       console.error(`[scheduled-sends] Failed to load send ${sendId}:`, err)
       Sentry.captureException(err, { tags: { area: 'scheduled-sends', stage: 'load' }, extra: { sendId, siteId } })
@@ -259,6 +261,7 @@ export async function pushDueSendsToResend(): Promise<{
           preheader,
           blocks,
           postsMap,
+          firstName: firstNames.get(row.email) ?? null,
           scheduledAt: row.scheduledAtUtc,
           sendId,
         })

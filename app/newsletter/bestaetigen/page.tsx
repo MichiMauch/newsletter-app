@@ -126,7 +126,14 @@ export default async function BestaetigungPage({
   // Enroll in active automations
   await enrollSubscriber(siteId, subscriber.email, 'subscriber_confirmed')
 
-  redirect(`/newsletter/bestaetigt?site=${encodeURIComponent(site.site_url)}`)
+  // The token rides along so the welcome page can offer the optional
+  // first-name capture form. Same token used in the unsubscribe footer —
+  // see security note in lib/newsletter-subscribers.ts:updateFirstName.
+  const params = new URLSearchParams({
+    site: site.site_url,
+    token: subscriber.token,
+  })
+  redirect(`/newsletter/bestaetigt?${params.toString()}`)
 }
 
 function ErrorMessage() {
