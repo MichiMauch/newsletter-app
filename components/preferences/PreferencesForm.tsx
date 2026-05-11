@@ -6,8 +6,8 @@ import Link from 'next/link'
 interface ListOption {
   id: number
   name: string
+  slug: string
   description: string | null
-  isPrimary: boolean
 }
 
 interface InitialState {
@@ -133,14 +133,7 @@ export default function PreferencesForm({
                     className="mt-0.5 h-4 w-4 accent-accent-600"
                   />
                   <label htmlFor={`list-${l.id}`} className="flex-1 cursor-pointer">
-                    <div className="text-sm font-medium text-[var(--foreground)]">
-                      {l.name}
-                      {l.isPrimary && (
-                        <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
-                          Hauptliste
-                        </span>
-                      )}
-                    </div>
+                    <div className="text-sm font-medium text-[var(--foreground)]">{l.name}</div>
                     {l.description && (
                       <div className="mt-0.5 text-xs text-[var(--foreground-secondary)]">{l.description}</div>
                     )}

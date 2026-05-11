@@ -9,8 +9,8 @@ export interface SubscriberListSummary {
   id: number
   site_id: string
   name: string
+  slug: string
   description: string | null
-  is_primary: boolean
   created_at: string
   member_count: number
 }
@@ -37,6 +37,8 @@ export default function ListsTab() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newSlug, setNewSlug] = useState('')
+  const [newSlugManual, setNewSlugManual] = useState(false)
   const [newDescription, setNewDescription] = useState('')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
   const [members, setMembers] = useState<SubscriberListMember[]>([])
@@ -45,9 +47,9 @@ export default function ListsTab() {
   const [adding, setAdding] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+  const [renameSlug, setRenameSlug] = useState('')
   const [renameDescription, setRenameDescription] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
-  const [primaryBusy, setPrimaryBusy] = useState(false)
 
   useEffect(() => {
     void loadLists()
@@ -77,6 +79,7 @@ export default function ListsTab() {
       const data = await res.json()
       setMembers(data.members || [])
       setRenameValue(data.list?.name ?? '')
+      setRenameSlug(data.list?.slug ?? '')
       setRenameDescription(data.list?.description ?? '')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Fehler')
@@ -85,24 +88,36 @@ export default function ListsTab() {
     }
   }
 
+  // Client-side slugify (Server validiert noch mal, dies ist nur fuer
+  // Live-Vorschau im Create-Form).
+  function slugify(s: string): string {
+    return s.toLowerCase()
+      .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
+  }
+
   async function handleCreate() {
     if (!newName.trim()) return
     setCreating(true)
     try {
+      const slug = (newSlugManual ? newSlug : slugify(newName)).trim()
       const res = await fetch('/api/admin/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create',
           name: newName.trim(),
+          slug,
           description: newDescription.trim() || undefined,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Fehler beim Anlegen.')
       setNewName('')
+      setNewSlug('')
+      setNewSlugManual(false)
       setNewDescription('')
-      toast.success(`Liste «${newName.trim()}» angelegt.`)
+      toast.success(`Liste «${newName.trim()}» angelegt (slug: ${data.slug}).`)
       await loadLists()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Fehler')
@@ -112,7 +127,7 @@ export default function ListsTab() {
   }
 
   async function handleRename() {
-    if (!selectedListId || !renameValue.trim()) return
+    if (!selectedListId || !renameValue.trim() || !renameSlug.trim()) return
     setRenaming(true)
     try {
       const res = await fetch('/api/admin/lists', {
@@ -122,6 +137,7 @@ export default function ListsTab() {
           action: 'rename',
           id: selectedListId,
           name: renameValue.trim(),
+          slug: renameSlug.trim(),
           description: renameDescription.trim() || null,
         }),
       })
@@ -154,24 +170,6 @@ export default function ListsTab() {
     }
   }
 
-  async function handlePromoteToPrimary(id: number) {
-    setPrimaryBusy(true)
-    try {
-      const res = await fetch('/api/admin/lists', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set-primary', id, makePrimary: true }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Fehler beim Setzen der Hauptliste.')
-      toast.success('Als Hauptliste markiert.')
-      await loadLists()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Fehler')
-    } finally {
-      setPrimaryBusy(false)
-    }
-  }
 
   async function handleAddMembers() {
     if (!selectedListId || !bulkEmails.trim()) return
@@ -243,10 +241,25 @@ export default function ListsTab() {
               <input
                 type="text"
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value)
+                  if (!newSlugManual) setNewSlug(slugify(e.target.value))
+                }}
                 placeholder="Listenname (z. B. Hauptnewsletter)"
                 className={inputCls}
               />
+              <div>
+                <input
+                  type="text"
+                  value={newSlug}
+                  onChange={(e) => { setNewSlug(e.target.value); setNewSlugManual(true) }}
+                  placeholder="slug (z. B. hauptnewsletter)"
+                  className={inputCls + ' font-mono text-xs'}
+                />
+                <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                  Wird im Anmeldeformular als <code>listSlug</code> mitgegeben — stabil, kann nachher schwer geändert werden. Nur a–z, 0–9, Bindestriche.
+                </p>
+              </div>
               <input
                 type="text"
                 value={newDescription}
@@ -256,7 +269,7 @@ export default function ListsTab() {
               />
               <button
                 onClick={handleCreate}
-                disabled={creating || !newName.trim()}
+                disabled={creating || !newName.trim() || !newSlug.trim()}
                 className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
               >
                 {creating ? 'Wird angelegt…' : 'Anlegen'}
@@ -285,11 +298,9 @@ export default function ListsTab() {
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-[var(--text)]">{l.name}</span>
-                        {l.is_primary && (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
-                            Hauptliste
-                          </span>
-                        )}
+                        <code className="rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]" title="Slug — fuer das Anmeldeformular">
+                          {l.slug}
+                        </code>
                       </div>
                       {l.description && (
                         <div className="mt-0.5 text-xs text-[var(--text-secondary)]">{l.description}</div>
@@ -315,27 +326,6 @@ export default function ListsTab() {
                       </div>
                     ) : (
                       <div className="flex shrink-0 items-center gap-2">
-                        {l.is_primary ? (
-                          // Schon Hauptliste: nur Anzeige, kein Klick — Hauptliste
-                          // wird ausschliesslich gewechselt, indem eine ANDERE
-                          // Liste als Hauptliste markiert wird. Damit kann die
-                          // Site nie aus Versehen "ohne Hauptliste" dastehen.
-                          <span
-                            className="inline-flex cursor-default items-center rounded-full border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
-                            title="Aktuelle Hauptliste — eine andere Liste promoten, um zu wechseln."
-                          >
-                            ★ Hauptliste
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handlePromoteToPrimary(l.id)}
-                            disabled={primaryBusy}
-                            className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 dark:hover:border-emerald-700 dark:hover:text-emerald-300"
-                            title="Als Hauptliste markieren — die bisherige Hauptliste wird automatisch demotet."
-                          >
-                            Als Hauptliste
-                          </button>
-                        )}
                         <button
                           onClick={() => loadMembers(l.id)}
                           className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
@@ -377,6 +367,18 @@ export default function ListsTab() {
                 placeholder="Listenname"
                 className={inputCls}
               />
+              <div>
+                <input
+                  type="text"
+                  value={renameSlug}
+                  onChange={(e) => setRenameSlug(e.target.value)}
+                  placeholder="slug"
+                  className={inputCls + ' font-mono text-xs'}
+                />
+                <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400">
+                  ⚠ Slug-Änderung bricht bestehende Anmeldeformulare, die auf den alten Slug zeigen.
+                </p>
+              </div>
               <input
                 type="text"
                 value={renameDescription}
@@ -386,7 +388,7 @@ export default function ListsTab() {
               />
               <button
                 onClick={handleRename}
-                disabled={renaming || !renameValue.trim()}
+                disabled={renaming || !renameValue.trim() || !renameSlug.trim()}
                 className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
               >
                 {renaming ? 'Wird gespeichert…' : 'Speichern'}
@@ -443,7 +445,7 @@ export default function ListsTab() {
                       <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Engagement</th>
                       <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Tags</th>
                       <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                        {selectedList?.is_primary ? 'Angemeldet' : 'In Liste seit'}
+                        In Liste seit
                       </th>
                       <th className="px-5 py-3"></th>
                     </tr>
@@ -486,7 +488,7 @@ export default function ListsTab() {
                             )}
                           </td>
                           <td className="px-5 py-3 whitespace-nowrap text-[var(--text-secondary)]">
-                            {formatDateShort(selectedList?.is_primary ? m.subscriber_created_at : m.added_at)}
+                            {formatDateShort(m.added_at)}
                           </td>
                           <td className="px-5 py-3 text-right whitespace-nowrap">
                             <button

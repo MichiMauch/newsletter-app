@@ -46,8 +46,8 @@ export default async function UnsubscribePage({
 interface RemainingMembership {
   listId: number
   name: string
+  slug: string
   description: string | null
-  isPrimary: boolean
   token: string
 }
 
@@ -82,14 +82,7 @@ function PerListSuccess({
               {remaining.map((m) => (
                 <li key={m.listId} className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-[var(--foreground)]">
-                      {m.name}
-                      {m.isPrimary && (
-                        <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
-                          Hauptliste
-                        </span>
-                      )}
-                    </div>
+                    <div className="text-sm font-medium text-[var(--foreground)]">{m.name}</div>
                     {m.description && (
                       <div className="text-xs text-[var(--foreground-secondary)]">{m.description}</div>
                     )}

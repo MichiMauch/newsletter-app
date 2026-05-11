@@ -443,16 +443,14 @@ export const subscriberLists = sqliteTable('subscriber_lists', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   siteId: text('site_id').notNull(),
   name: text('name').notNull(),
+  // Stabiler Identifier, den das Anmeldeformular mitschickt (statt der
+  // env-spezifischen Numeric-ID). Eindeutig pro Site via Unique-Index.
+  slug: text('slug').notNull(),
   description: text('description'),
-  // Genau eine Liste pro Site darf isPrimary=1 sein (= "Hauptnewsletter").
-  // Eindeutigkeit wird applikatorisch geprueft (LibSQL/SQLite-Partial-Unique
-  // ist verfuegbar, aber drizzle-kit unterstuetzt es bei Turso noch nicht
-  // sauber, daher Schema-seitig nur Default + Index).
-  isPrimary: integer('is_primary').notNull().default(0),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_sl_site').on(table.siteId),
-  index('idx_sl_primary').on(table.siteId, table.isPrimary),
+  uniqueIndex('idx_sl_site_slug').on(table.siteId, table.slug),
 ])
 
 export const subscriberListMembers = sqliteTable('subscriber_list_members', {

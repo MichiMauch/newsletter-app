@@ -12,7 +12,7 @@ export type Subscriber = typeof newsletterSubscribers.$inferSelect
 export interface SubscriberListMembershipSummary {
   id: number
   name: string
-  isPrimary: boolean
+  slug: string
 }
 
 export interface SubscriberEnriched extends Subscriber {
@@ -112,33 +112,14 @@ export async function createSubscriber(
     resultToken = token
   }
 
-  // Mitgliedschaften setzen — explizite Listen, sonst Hauptliste der Site.
-  const targetListIds = opts.listIds && opts.listIds.length > 0
-    ? opts.listIds
-    : await getDefaultListIds(siteId)
-  if (targetListIds.length > 0) {
-    await addSubscriberToLists(subscriberId, siteId, targetListIds)
+  // Mitgliedschaften setzen — wenn keine listIds uebergeben wurden, wird der
+  // Subscriber NICHT in eine Liste eingetragen (kein implizites Default mehr).
+  // Aufrufer muessen explizit listIds resolven, bevor sie createSubscriber rufen.
+  if (opts.listIds && opts.listIds.length > 0) {
+    await addSubscriberToLists(subscriberId, siteId, opts.listIds)
   }
 
   return { token: resultToken, alreadyConfirmed, subscriberId }
-}
-
-async function getDefaultListIds(siteId: string): Promise<number[]> {
-  const primary = await getPrimaryListId(siteId)
-  return primary === null ? [] : [primary]
-}
-
-/**
- * Liefert die Hauptliste (isPrimary=1) fuer eine Site, falls vorhanden.
- * Eindeutigkeit wird applikatorisch gepflegt — Schema-Default ist 0.
- */
-export async function getPrimaryListId(siteId: string): Promise<number | null> {
-  const db = getDb()
-  const rows = await db.select({ id: subscriberLists.id })
-    .from(subscriberLists)
-    .where(and(eq(subscriberLists.siteId, siteId), eq(subscriberLists.isPrimary, 1)))
-    .limit(1)
-  return rows[0]?.id ?? null
 }
 
 /**
@@ -272,20 +253,21 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
   // Stammlisten-Sicht zeigt Identitaet + Listen-Mitgliedschaften (Cross-List).
   // Engagement und Tags leben in der ListsTab-Detailsicht und im Drawer, daher
   // hier kein JOIN mehr darauf. lists_concat speist die "In Listen"-Spalte —
-  // Format pro Eintrag: "<id>:<isPrimary>:<name>", getrennt mit "||".
-  // Listen-Namen koennen "||" theoretisch enthalten — daher wird der Name als
-  // letztes Feld via split-with-limit wieder zusammengefuegt.
+  // Format pro Eintrag: "<id>:<slug>:<name>", getrennt mit "||". Slug enthaelt
+  // garantiert kein ":" (Slug-Validation), Name kann ":" enthalten — daher
+  // wird beim Parsen der Name als letztes Feld via split-with-limit
+  // zusammengefuegt.
   const rows = await db.run(sql`
     SELECT
       s.id, s.site_id, s.email, s.status, s.token, s.created_at, s.confirmed_at, s.blocked_at,
       s.subscribed_ip, s.subscribed_user_agent, s.confirmed_ip, s.confirmed_user_agent,
       s.first_name,
       (
-        SELECT GROUP_CONCAT(sl.id || ':' || sl.is_primary || ':' || sl.name, '||')
+        SELECT GROUP_CONCAT(sl.id || ':' || sl.slug || ':' || sl.name, '||')
         FROM subscriber_list_members slm
         JOIN subscriber_lists sl ON sl.id = slm.list_id
         WHERE slm.subscriber_id = s.id
-        ORDER BY sl.is_primary DESC, sl.name
+        ORDER BY sl.name
       ) AS lists_concat
     FROM newsletter_subscribers s
     WHERE s.site_id = ${siteId}
@@ -313,24 +295,20 @@ function parseListsConcat(raw: string | null): SubscriberListMembershipSummary[]
   if (!raw) return []
   const out: SubscriberListMembershipSummary[] = []
   for (const entry of raw.split('||')) {
-    // Format: "<id>:<is_primary>:<name>" — Name kann ":" enthalten, daher
-    // splitWithLimit-Style: erste zwei Tokens parsen, Rest als Name.
+    // Format: "<id>:<slug>:<name>" — Slug ist garantiert ohne ":" (Validation),
+    // Name kann ":" enthalten, daher splitWithLimit-Style.
     const firstColon = entry.indexOf(':')
     if (firstColon < 0) continue
     const secondColon = entry.indexOf(':', firstColon + 1)
     if (secondColon < 0) continue
     const id = Number(entry.slice(0, firstColon))
-    const isPrimary = entry.slice(firstColon + 1, secondColon) === '1'
+    const slug = entry.slice(firstColon + 1, secondColon)
     const name = entry.slice(secondColon + 1)
-    if (!Number.isFinite(id) || !name) continue
-    out.push({ id, name, isPrimary })
+    if (!Number.isFinite(id) || !slug || !name) continue
+    out.push({ id, name, slug })
   }
-  // SQLite GROUP_CONCAT garantiert keine bestimmte Reihenfolge — daher
-  // hier sortieren: Hauptliste zuerst, dann alphabetisch.
-  out.sort((a, b) => {
-    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
+  // SQLite GROUP_CONCAT garantiert keine Reihenfolge — alphabetisch sortieren.
+  out.sort((a, b) => a.name.localeCompare(b.name))
   return out
 }
 

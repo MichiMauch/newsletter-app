@@ -145,8 +145,8 @@ async function loadState(token: string) {
     db.select({
       id: subscriberLists.id,
       name: subscriberLists.name,
+      slug: subscriberLists.slug,
       description: subscriberLists.description,
-      isPrimary: subscriberLists.isPrimary,
     })
       .from(subscriberLists)
       .where(eq(subscriberLists.siteId, sub.siteId))
@@ -161,14 +161,14 @@ async function loadState(token: string) {
     },
     memberships: memberships.map((m) => ({
       listId: m.listId,
-      isPrimary: m.isPrimary,
       name: m.name,
+      slug: m.slug,
     })),
     lists: lists.map((l) => ({
       id: l.id,
       name: l.name,
+      slug: l.slug,
       description: l.description ?? null,
-      isPrimary: Number(l.isPrimary) === 1,
     })),
   })
 }

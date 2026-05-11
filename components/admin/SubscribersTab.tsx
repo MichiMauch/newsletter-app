@@ -22,19 +22,16 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
   const [drawerEmail, setDrawerEmail] = useState<string | null>(null)
   const drawerSubscriber = drawerEmail ? subscribers.find((s) => s.email === drawerEmail) ?? null : null
 
-  // Eindeutige Listen-Eintraege fuer den Filter-Dropdown — Hauptliste zuerst,
-  // danach alphabetisch. Aus den Memberships aller Subscriber dedupliziert.
+  // Eindeutige Listen-Eintraege fuer den Filter-Dropdown — alphabetisch sortiert.
+  // Aus den Memberships aller Subscriber dedupliziert.
   const allLists = useMemo(() => {
-    const map = new Map<number, { id: number; name: string; isPrimary: boolean }>()
+    const map = new Map<number, { id: number; name: string; slug: string }>()
     for (const s of subscribers) {
       for (const l of s.lists ?? []) {
         if (!map.has(l.id)) map.set(l.id, l)
       }
     }
-    return [...map.values()].sort((a, b) => {
-      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [subscribers])
 
   const filtered = useMemo(() => subscribers.filter((s) => {
@@ -118,7 +115,7 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
           <option value="none">In keiner Liste</option>
           {allLists.map((l) => (
             <option key={l.id} value={String(l.id)}>
-              {l.isPrimary ? '★ ' : ''}{l.name}
+              {l.name}
             </option>
           ))}
         </select>
@@ -172,14 +169,10 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
                           {s.lists.map((l) => (
                             <span
                               key={l.id}
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${
-                                l.isPrimary
-                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
-                                  : 'border-[var(--border)] bg-[var(--bg)] text-[var(--text-secondary)]'
-                              }`}
-                              title={l.isPrimary ? 'Hauptliste' : undefined}
+                              className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]"
+                              title={l.slug}
                             >
-                              {l.isPrimary ? '★ ' : ''}{l.name}
+                              {l.name}
                             </span>
                           ))}
                         </div>

@@ -7,7 +7,7 @@ export interface Subscriber {
   confirmedAt: string | null
   blockedAt: string | null
   // Listen, in denen der Subscriber aktuell Mitglied ist.
-  lists: { id: number; name: string; isPrimary: boolean }[]
+  lists: { id: number; name: string; slug: string }[]
   // Engagement und Tags lebten urspruenglich in dieser Sicht — nach dem
   // Subscription-Center-Refactor zeigt die Stammlisten-Tabelle diese nicht
   // mehr; sie bleiben optional fuer Konsumenten, die das alte Interface

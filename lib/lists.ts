@@ -3,8 +3,9 @@
  * der Stammliste (newsletter_subscribers). E-Mail wird via JOIN aufgeloest;
  * E-Mail-Aenderung am Subscriber wirkt damit automatisch in allen Listen.
  *
- * Genau eine Liste pro Site darf is_primary=1 sein (Hauptnewsletter, in den
- * neue Subscribes per Default eingetragen werden).
+ * Listen werden ueber ihren stabilen `slug` von externen Anmeldeformularen
+ * referenziert — kein implizites "Hauptlisten"-Konzept mehr. Jedes Form
+ * uebergibt die slugs der Listen, fuer die der User sich anmeldet.
  */
 
 import { and, eq, sql, inArray } from 'drizzle-orm'
@@ -15,8 +16,8 @@ export interface SubscriberListSummary {
   id: number
   site_id: string
   name: string
+  slug: string
   description: string | null
-  is_primary: boolean
   created_at: string
   member_count: number
 }
@@ -40,20 +41,44 @@ export interface SubscriberListMember {
 
 // ─── Listen ────────────────────────────────────────────────────────────
 
-export async function createList(siteId: string, name: string, description?: string): Promise<number> {
+const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
+
+export function isValidSlug(raw: string): boolean {
+  return SLUG_REGEX.test(raw)
+}
+
+export function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64) || 'list'
+}
+
+export async function createList(siteId: string, name: string, slug: string, description?: string): Promise<number> {
+  if (!isValidSlug(slug)) {
+    throw new Error(`Ungültiger Slug "${slug}" — nur a-z, 0-9 und Bindestriche, maximal 64 Zeichen.`)
+  }
   const db = getDb()
   const result = await db.insert(subscriberLists).values({
     siteId,
     name,
+    slug,
     description: description ?? null,
   }).returning({ id: subscriberLists.id })
   return result[0].id
 }
 
-export async function renameList(id: number, name: string, description?: string | null): Promise<void> {
+export async function renameList(id: number, name: string, slug: string, description?: string | null): Promise<void> {
+  if (!isValidSlug(slug)) {
+    throw new Error(`Ungültiger Slug "${slug}" — nur a-z, 0-9 und Bindestriche, maximal 64 Zeichen.`)
+  }
   const db = getDb()
   await db.update(subscriberLists)
-    .set({ name, description: description ?? null })
+    .set({ name, slug, description: description ?? null })
     .where(eq(subscriberLists.id, id))
 }
 
@@ -62,53 +87,23 @@ export async function deleteList(id: number): Promise<void> {
   await db.delete(subscriberLists).where(eq(subscriberLists.id, id))
 }
 
-/**
- * Markiert eine Liste als Hauptliste — und stellt sicher, dass keine andere
- * Liste derselben Site noch isPrimary=1 ist (applikatorische Eindeutigkeit).
- * makePrimary=false setzt nur die Liste selbst zurueck (lasst die Site ohne
- * Hauptliste stehen, was UI/Subscribe respektieren muss).
- */
-export async function setPrimaryList(listId: number, makePrimary: boolean): Promise<void> {
-  const db = getDb()
-  const list = await db.select({ siteId: subscriberLists.siteId })
-    .from(subscriberLists)
-    .where(eq(subscriberLists.id, listId))
-    .limit(1)
-  if (!list[0]) throw new Error(`List ${listId} not found`)
-  await db.transaction(async (tx) => {
-    if (makePrimary) {
-      // Erst alle anderen Listen der Site auf 0 setzen, dann die gewuenschte auf 1.
-      await tx.update(subscriberLists)
-        .set({ isPrimary: 0 })
-        .where(and(eq(subscriberLists.siteId, list[0].siteId), eq(subscriberLists.isPrimary, 1)))
-      await tx.update(subscriberLists)
-        .set({ isPrimary: 1 })
-        .where(eq(subscriberLists.id, listId))
-    } else {
-      await tx.update(subscriberLists)
-        .set({ isPrimary: 0 })
-        .where(eq(subscriberLists.id, listId))
-    }
-  })
-}
-
 export async function getLists(siteId: string): Promise<SubscriberListSummary[]> {
   const db = getDb()
   const rows = await db.run(sql`
-    SELECT l.id, l.site_id, l.name, l.description, l.is_primary, l.created_at,
+    SELECT l.id, l.site_id, l.name, l.slug, l.description, l.created_at,
            COUNT(m.id) as member_count
     FROM subscriber_lists l
     LEFT JOIN subscriber_list_members m ON m.list_id = l.id
     WHERE l.site_id = ${siteId}
     GROUP BY l.id
-    ORDER BY l.is_primary DESC, l.created_at DESC
+    ORDER BY l.name
   `)
   return (rows.rows ?? []).map((r) => ({
     id: r.id as number,
     site_id: r.site_id as string,
     name: r.name as string,
+    slug: r.slug as string,
     description: (r.description as string | null) ?? null,
-    is_primary: Number(r.is_primary) === 1,
     created_at: r.created_at as string,
     member_count: r.member_count as number,
   }))
@@ -117,7 +112,7 @@ export async function getLists(siteId: string): Promise<SubscriberListSummary[]>
 export async function getList(id: number): Promise<SubscriberListSummary | null> {
   const db = getDb()
   const rows = await db.run(sql`
-    SELECT l.id, l.site_id, l.name, l.description, l.is_primary, l.created_at,
+    SELECT l.id, l.site_id, l.name, l.slug, l.description, l.created_at,
            COUNT(m.id) as member_count
     FROM subscriber_lists l
     LEFT JOIN subscriber_list_members m ON m.list_id = l.id
@@ -130,10 +125,35 @@ export async function getList(id: number): Promise<SubscriberListSummary | null>
     id: r.id as number,
     site_id: r.site_id as string,
     name: r.name as string,
+    slug: r.slug as string,
     description: (r.description as string | null) ?? null,
-    is_primary: Number(r.is_primary) === 1,
     created_at: r.created_at as string,
     member_count: r.member_count as number,
+  }
+}
+
+/**
+ * Resolved Liste-Slugs zu Liste-IDs fuer eine Site. Gibt {found, missing} zurueck —
+ * Aufrufer entscheidet, was bei missing slugs passiert (Subscribe rejected, Admin
+ * Auto-Create, etc.).
+ */
+export async function getListsBySlugs(siteId: string, slugs: string[]): Promise<{
+  found: { id: number; slug: string; name: string }[]
+  missing: string[]
+}> {
+  if (slugs.length === 0) return { found: [], missing: [] }
+  const db = getDb()
+  const rows = await db.select({
+    id: subscriberLists.id,
+    slug: subscriberLists.slug,
+    name: subscriberLists.name,
+  })
+    .from(subscriberLists)
+    .where(and(eq(subscriberLists.siteId, siteId), inArray(subscriberLists.slug, slugs)))
+  const foundSlugs = new Set(rows.map((r) => r.slug))
+  return {
+    found: rows,
+    missing: slugs.filter((s) => !foundSlugs.has(s)),
   }
 }
 
@@ -371,27 +391,27 @@ export async function getListEmailsForSend(listId: number): Promise<{
 export async function getMembershipsForSubscriber(subscriberId: number): Promise<{
   listId: number
   name: string
+  slug: string
   description: string | null
-  isPrimary: boolean
   token: string
 }[]> {
   const db = getDb()
   const rows = await db.select({
     listId: subscriberLists.id,
     name: subscriberLists.name,
+    slug: subscriberLists.slug,
     description: subscriberLists.description,
-    isPrimary: subscriberLists.isPrimary,
     token: subscriberListMembers.token,
   })
     .from(subscriberListMembers)
     .innerJoin(subscriberLists, eq(subscriberLists.id, subscriberListMembers.listId))
     .where(eq(subscriberListMembers.subscriberId, subscriberId))
-    .orderBy(sql`${subscriberLists.isPrimary} DESC`, subscriberLists.name)
+    .orderBy(subscriberLists.name)
   return rows.map((r) => ({
     listId: r.listId,
     name: r.name,
+    slug: r.slug,
     description: r.description ?? null,
-    isPrimary: Number(r.isPrimary) === 1,
     token: r.token,
   }))
 }

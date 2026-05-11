@@ -33,8 +33,8 @@ export default async function PreferencesPage({
     db.select({
       id: subscriberLists.id,
       name: subscriberLists.name,
+      slug: subscriberLists.slug,
       description: subscriberLists.description,
-      isPrimary: subscriberLists.isPrimary,
     })
       .from(subscriberLists)
       .where(eq(subscriberLists.siteId, sub.siteId))
@@ -64,8 +64,8 @@ export default async function PreferencesPage({
           lists: lists.map((l) => ({
             id: l.id,
             name: l.name,
+            slug: l.slug,
             description: l.description ?? null,
-            isPrimary: Number(l.isPrimary) === 1,
           })),
         }}
       />
