@@ -433,7 +433,9 @@ export default function ListsTab() {
                       <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Status</th>
                       <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Engagement</th>
                       <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Tags</th>
-                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">In Liste seit</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                        {selectedList?.is_primary ? 'Angemeldet' : 'In Liste seit'}
+                      </th>
                       <th className="px-5 py-3"></th>
                     </tr>
                   </thead>
@@ -475,7 +477,7 @@ export default function ListsTab() {
                             )}
                           </td>
                           <td className="px-5 py-3 whitespace-nowrap text-[var(--text-secondary)]">
-                            {formatDateShort(m.added_at)}
+                            {formatDateShort(selectedList?.is_primary ? m.subscriber_created_at : m.added_at)}
                           </td>
                           <td className="px-5 py-3 text-right whitespace-nowrap">
                             <button
