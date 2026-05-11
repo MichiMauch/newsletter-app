@@ -31,11 +31,12 @@ import AdminSidebar from './admin/AdminSidebar'
 import { useDataLoader } from '@/hooks/useDataLoader'
 import SendCenterNav from './admin/send/SendCenterNav'
 import ReadyToSendList from './admin/send/ReadyToSendList'
+import DraftList from './admin/compose/DraftList'
 
 
 // --- Trend Charts ------------------------------------------------------
 
-export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTab = 'compose', automationId }: { initialTab?: Tab; initialSubTab?: SendSubTab; automationId?: number } = {}) {
+export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTab = 'list', automationId }: { initialTab?: Tab; initialSubTab?: SendSubTab; automationId?: number } = {}) {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [sendSubTab, setSendSubTab] = useState<SendSubTab>(initialSubTab)
   // Heavy tabs (Automations editor, History charts) used to block the click-
@@ -117,7 +118,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
   // Compose-Workflow lebt in /admin/newsletter/compose (eigene Routen). Der
   // Send-Bereich verteilt jetzt nur noch fertige Drafts — kein localer
   // useComposeState mehr im AdminNewsletter-Shell.
-  const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'compose') => {
+  const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'list') => {
     setPendingTabRaw(newTab)
     if (newTab === 'send') setPendingSubTabRaw(newSubTab)
     window.history.pushState(null, '', tabToHref(newTab, newSubTab))
@@ -195,13 +196,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
         />
       )}
 
+      {/* --- Compose Tab — Draft-Liste ---------------------------- */}
+      {tab === 'compose' && (
+        <DraftList />
+      )}
+
       {/* --- Send Center: sub-nav -------------------------------- */}
       {tab === 'send' && (
         <SendCenterNav active={sendSubTab} pending={pendingSubTab} onChange={setSendSubTabWithUrl} />
       )}
 
       {/* --- Send Center › Bereit zum Senden --------------------- */}
-      {tab === 'send' && sendSubTab === 'compose' && (
+      {tab === 'send' && sendSubTab === 'list' && (
         <ReadyToSendList />
       )}
 

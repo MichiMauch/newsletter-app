@@ -14,6 +14,11 @@ const ICON_SEND = (
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
   </svg>
 )
+const ICON_COMPOSE = (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+  </svg>
+)
 const ICON_SUBSCRIBERS = (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128H5.228A2 2 0 013 17.16V17a6.003 6.003 0 017.654-5.77M12 15.07a5.98 5.98 0 00-1.654-.76M15 19.128H5.228A2 2 0 013 17.16V17" />
@@ -66,7 +71,13 @@ type SidebarGroup = { label: string | null; items: SidebarItem[] }
 
 const SIDEBAR_GROUPS: SidebarGroup[] = [
   { label: null, items: [{ id: 'dashboard', label: 'Dashboard', icon: ICON_DASHBOARD }] },
-  { label: 'Senden', items: [{ id: 'send', label: 'Send Center', icon: ICON_SEND }] },
+  {
+    label: 'Newsletter',
+    items: [
+      { id: 'compose', label: 'Erstellen', icon: ICON_COMPOSE },
+      { id: 'send', label: 'Senden', icon: ICON_SEND },
+    ],
+  },
   {
     label: 'Audience',
     items: [

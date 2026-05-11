@@ -1,5 +1,5 @@
-import DraftList from '@/components/admin/compose/DraftList'
+import AdminNewsletter from '@/components/AdminNewsletter'
 
 export default function ComposePage() {
-  return <DraftList />
+  return <AdminNewsletter initialTab="compose" />
 }

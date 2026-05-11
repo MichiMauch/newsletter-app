@@ -1,5 +1,5 @@
 import AdminNewsletter from '@/components/AdminNewsletter'
 
-export default function SendComposePage() {
-  return <AdminNewsletter initialTab="send" initialSubTab="compose" />
+export default function SendListPage() {
+  return <AdminNewsletter initialTab="send" initialSubTab="list" />
 }

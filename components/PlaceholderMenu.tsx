@@ -99,7 +99,9 @@ export default function PlaceholderMenu({ onInsert, variant = 'toolbar' }: Place
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-full z-30 mt-1 w-80 rounded-md border border-[var(--border)] bg-[var(--background-card)] p-1 shadow-lg"
+          className={`absolute top-full z-30 mt-1 w-80 rounded-md border border-[var(--border)] bg-[var(--background-card)] p-1 shadow-lg ${
+            variant === 'chip' ? 'right-0' : 'left-0'
+          }`}
         >
           <div className="px-2 py-1.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
             Platzhalter einfügen

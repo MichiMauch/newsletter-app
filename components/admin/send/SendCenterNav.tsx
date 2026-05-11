@@ -4,7 +4,7 @@ import type { SendSubTab } from '../types'
 import { tabToHref } from '../routing'
 
 const SEND_SUB_TAB_LABELS: Record<SendSubTab, string> = {
-  compose: 'Versand',
+  list: 'Bereit',
   history: 'Historie',
   bounces: 'Probleme',
 }
@@ -22,7 +22,7 @@ export default function SendCenterNav({ active, pending = null, onChange }: Prop
   const effective = pending ?? active
   return (
     <div className="flex items-center gap-1 border-b border-[var(--border)]">
-      {(['compose', 'history', 'bounces'] as SendSubTab[]).map((sub) => {
+      {(['list', 'history', 'bounces'] as SendSubTab[]).map((sub) => {
         const isActive = sub === effective
         const isLoading = pending === sub
         return (

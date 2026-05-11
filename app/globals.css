@@ -96,25 +96,6 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* ─── Vertical grid lines (Swiss hallmark) ────────────────────────── */
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    repeating-linear-gradient(
-      to right,
-      var(--border) 0px,
-      var(--border) 1px,
-      transparent 1px,
-      transparent 25%
-    );
-  opacity: 0.35;
-}
-
 /* ─── Glass Card → Editorial Panel ────────────────────────────────── */
 
 .glass-card {

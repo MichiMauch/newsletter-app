@@ -86,8 +86,8 @@ export interface SubscriberGrowth {
   new_count: number
 }
 
-export type Tab = 'dashboard' | 'send' | 'subscribers' | 'lists' | 'settings' | 'automations' | 'emails'
-export type SendSubTab = 'compose' | 'history' | 'bounces'
+export type Tab = 'dashboard' | 'compose' | 'send' | 'subscribers' | 'lists' | 'settings' | 'automations' | 'emails'
+export type SendSubTab = 'list' | 'history' | 'bounces'
 
 export type AudienceMode = 'all' | 'engaged' | 'high'
 
