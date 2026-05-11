@@ -4,7 +4,7 @@ import type { SendSubTab } from '../types'
 import { tabToHref } from '../routing'
 
 const SEND_SUB_TAB_LABELS: Record<SendSubTab, string> = {
-  compose: 'Erstellen',
+  compose: 'Versand',
   history: 'Historie',
   bounces: 'Probleme',
 }

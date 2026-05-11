@@ -15,12 +15,6 @@ import StatusPill from './ui/StatusPill'
 import AiCopilot from './ui/AiCopilot'
 import EngagementTrendChart from './admin/charts/EngagementTrendChart'
 import SubscriberGrowthChart from './admin/charts/SubscriberGrowthChart'
-import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
-import {
-  blocksAreValid,
-  buildPostsMap,
-  parseScheduleLocal,
-} from '@/lib/newsletter-block-helpers'
 import { PREVIEW_SITE_CONFIG } from '@/emails/_preview-data'
 import {
   type Subscriber,
@@ -34,15 +28,9 @@ import {
 } from './admin/types'
 import { tabToHref, pathToTab } from './admin/routing'
 import AdminSidebar from './admin/AdminSidebar'
-import ConfirmSendModal from './admin/send/ConfirmSendModal'
-import TestSendModal from './admin/send/TestSendModal'
-import SubjectPickerModal from './admin/send/SubjectPickerModal'
-import { useComposeState } from '@/hooks/useComposeState'
 import { useDataLoader } from '@/hooks/useDataLoader'
 import SendCenterNav from './admin/send/SendCenterNav'
-import PreviewModal from './admin/send/PreviewModal'
-import NewsletterStudio from './admin/send/NewsletterStudio'
-import ComposeWizard from './admin/send/ComposeWizard'
+import ReadyToSendList from './admin/send/ReadyToSendList'
 
 
 // --- Trend Charts ------------------------------------------------------
@@ -126,72 +114,26 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
     }
   }, [tab, sendSubTab, sendTrends.length, loadTrends])
 
-  const compose = useComposeState({
-    posts,
-    confirmedCount,
-    tab,
-    sendSubTab,
-    toast,
-    setConfirmAction,
-    streamingSend,
-    loadData,
-  })
-  // Only destructure what AdminNewsletter itself uses outside of <ComposeWizard />.
-  // Everything else flows through `compose` directly.
-  const {
-    composeMode,
-    blocks,
-    subject, setSubject,
-    preheader, setPreheader,
-    abTestEnabled, setAbTestEnabled,
-    subjectVariantB, setSubjectVariantB,
-    subjectPickerTarget,
-    generatingSubject,
-    subjectOptions,
-    showSubjectPicker, setShowSubjectPicker,
-    audienceFilter,
-    showPreview, setShowPreview,
-    confirmSend, setConfirmSend,
-    showTestSend, setShowTestSend,
-    testEmail, setTestEmail,
-    useSto,
-    scheduleMode, scheduleLocal,
-    audienceCount,
-    studioMode, setStudioMode,
-    studioViewport, setStudioViewport,
-    generateSubject,
-    updateBlock,
-    removeBlock,
-    moveBlock,
-    insertBlock,
-    handleTestSendConfirmed,
-    handleSendConfirmed,
-  } = compose
-
-  // Navigation helpers. Defined after compose + automationFullscreen so we can
-  // close any open fullscreen overlays before swapping tabs. Without that
-  // reset, navigating away from Studio (or the Automation editor) leaves
-  // studioMode/automationFullscreen true while the overlay's owning condition
-  // (e.g. tab === 'send') no longer matches → nothing renders, blank page.
+  // Compose-Workflow lebt in /admin/newsletter/compose (eigene Routen). Der
+  // Send-Bereich verteilt jetzt nur noch fertige Drafts — kein localer
+  // useComposeState mehr im AdminNewsletter-Shell.
   const setTabWithUrl = useCallback((newTab: Tab, newSubTab: SendSubTab = 'compose') => {
     setPendingTabRaw(newTab)
     if (newTab === 'send') setPendingSubTabRaw(newSubTab)
     window.history.pushState(null, '', tabToHref(newTab, newSubTab))
-    setStudioMode(false)
     setAutomationFullscreen(false)
     startNavTransition(() => {
       setTab(newTab)
       if (newTab === 'send') setSendSubTab(newSubTab)
     })
-  }, [setStudioMode])
+  }, [])
   const setSendSubTabWithUrl = useCallback((sub: SendSubTab) => {
     setPendingSubTabRaw(sub)
     window.history.pushState(null, '', tabToHref('send', sub))
-    if (sub !== 'compose') setStudioMode(false)
     startNavTransition(() => {
       setSendSubTab(sub)
     })
-  }, [setStudioMode])
+  }, [])
 
   if (phase === 'checking') {
     return (
@@ -212,8 +154,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
     )
   }
 
-  const postsMap = buildPostsMap(blocks, posts)
-
   return (
     <div className="flex h-screen">
       <AdminSidebar
@@ -224,44 +164,19 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         copilotOpen={copilotOpen}
         onToggleCopilot={() => setCopilotOpen((o) => !o)}
-        showCopilot={!automationFullscreen && !studioMode}
+        showCopilot={!automationFullscreen}
         darkMode={darkMode}
         onToggleDarkMode={toggleDarkMode}
       />
 
       {/* ── Main Content ─────────────────────────────── */}
-      <div className={`flex-1 ${automationFullscreen || studioMode ? '' : 'overflow-y-auto'}`}>
+      <div className={`flex-1 ${automationFullscreen ? '' : 'overflow-y-auto'}`}>
         {/* Automation fullscreen — no container constraints */}
         {automationFullscreen && tab === 'automations' && (
           <AutomationEditor siteConfig={PREVIEW_SITE_CONFIG} posts={posts.map(p => ({ slug: p.slug, title: p.title, summary: p.summary, image: p.image, date: p.date }))} onFullscreen={setAutomationFullscreen} initialAutomationId={automationId} />
         )}
 
-        {/* Studio fullscreen — replaces compose step 2 with editor + live preview */}
-        {studioMode && tab === 'send' && sendSubTab === 'compose' && composeMode === 'fill-slots' && (
-          <NewsletterStudio
-            subject={subject}
-            onSubjectChange={setSubject}
-            preheader={preheader}
-            onPreheaderChange={setPreheader}
-            abTestEnabled={abTestEnabled}
-            onAbTestEnabledChange={setAbTestEnabled}
-            subjectVariantB={subjectVariantB}
-            onSubjectVariantBChange={setSubjectVariantB}
-            blocks={blocks}
-            onUpdateBlock={updateBlock}
-            onRemoveBlock={removeBlock}
-            onMoveBlock={moveBlock}
-            onInsertBlock={insertBlock}
-            posts={posts}
-            postsMap={postsMap}
-            siteConfig={PREVIEW_SITE_CONFIG}
-            viewport={studioViewport}
-            onViewportChange={setStudioViewport}
-            onExit={() => setStudioMode(false)}
-          />
-        )}
-
-        <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen || studioMode ? 'hidden' : ''}`}>
+        <div className={`mx-auto max-w-[1100px] space-y-6 p-6 ${automationFullscreen ? 'hidden' : ''}`}>
       <div className="flex justify-end">
         <StatusPill />
       </div>
@@ -285,35 +200,20 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
         <SendCenterNav active={sendSubTab} pending={pendingSubTab} onChange={setSendSubTabWithUrl} />
       )}
 
-      {/* --- Send Center › Compose ------------------------------- */}
+      {/* --- Send Center › Bereit zum Senden --------------------- */}
       {tab === 'send' && sendSubTab === 'compose' && (
-        <ComposeWizard
-          compose={compose}
-          posts={posts}
-          toast={toast}
-          loadData={loadData}
-          setConfirmAction={setConfirmAction}
-        />
-      )}
-
-      {/* Preview Modal */}
-      {showPreview && blocksAreValid(blocks) && (
-        <PreviewModal
-          html={buildMultiBlockNewsletterHtml(PREVIEW_SITE_CONFIG, blocks, postsMap, '#', preheader || null)}
-          onClose={() => setShowPreview(false)}
-        />
+        <ReadyToSendList />
       )}
 
       {/* AI Co-Pilot — controlled by sidebar trigger */}
-      {!automationFullscreen && !studioMode && (
+      {!automationFullscreen && (
         <AiCopilot
           open={copilotOpen}
           onClose={() => setCopilotOpen(false)}
           context={
             tab === 'dashboard' ? 'dashboard'
               : tab === 'subscribers' ? 'subscribers'
-                : tab === 'send' && sendSubTab === 'compose' ? 'compose'
-                  : 'other'
+                : 'other'
           }
         />
       )}
@@ -366,44 +266,6 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
         <EmailTemplatesTab />
       )}
 
-
-      {confirmSend && (
-        <ConfirmSendModal
-          subject={subject}
-          audienceCount={audienceCount}
-          audienceFilter={audienceFilter}
-          scheduledDate={scheduleMode === 'scheduled' ? parseScheduleLocal(scheduleLocal) : null}
-          useSto={useSto}
-          onCancel={() => setConfirmSend(false)}
-          onConfirm={handleSendConfirmed}
-        />
-      )}
-
-      {showTestSend && (
-        <TestSendModal
-          subject={subject}
-          testEmail={testEmail}
-          onTestEmailChange={setTestEmail}
-          onCancel={() => setShowTestSend(false)}
-          onConfirm={handleTestSendConfirmed}
-        />
-      )}
-
-      {showSubjectPicker && (
-        <SubjectPickerModal
-          options={subjectOptions}
-          generating={generatingSubject}
-          canRegenerate={blocks.length > 0}
-          target={subjectPickerTarget}
-          onSelect={(s) => {
-            if (subjectPickerTarget === 'b') setSubjectVariantB(s)
-            else setSubject(s)
-            setShowSubjectPicker(false)
-          }}
-          onRegenerate={() => generateSubject(subjectPickerTarget)}
-          onClose={() => setShowSubjectPicker(false)}
-        />
-      )}
 
       {/* --- Generic Confirm Modal ------------------------------ */}
       {confirmAction && (

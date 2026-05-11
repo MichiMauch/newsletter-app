@@ -34,6 +34,7 @@ import { getList, getListEmailsForSend } from '@/lib/lists'
 import { bootstrapProfilesFromClicks } from '@/lib/send-time-optimization'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 import { isValidEmail } from '@/lib/validators'
+import { getDraft, markDraftSent } from '@/lib/newsletter-drafts'
 
 const SEND_DELAY_MS = 800
 const MAX_RETRIES = 2
@@ -52,6 +53,7 @@ interface NewsletterActionBody {
   scheduledFor?: string
   listId?: number
   variants?: unknown
+  draftId?: string
 }
 
 const PREHEADER_MAX = 200
@@ -302,11 +304,34 @@ export async function actionCancelScheduled(body: NewsletterActionBody): Promise
 }
 
 export async function actionSend(body: NewsletterActionBody, site: SiteConfig): Promise<Response> {
-  const { subject, blocks, useSto, audienceFilter, scheduledFor, listId } = body
-  const preheader = sanitizePreheader(body.preheader)
-  const variants: VariantSpec[] | null = body.variants !== undefined ? parseVariantsInput(body.variants) : null
+  const { useSto, audienceFilter, scheduledFor, listId, draftId } = body
 
-  if (body.variants !== undefined && variants === null) {
+  // ─── Draft-driven send: load subject/blocks/variants from the persisted draft.
+  // Inline-blocks path stays compatible for automation/cron callers that bypass
+  // the draft pipeline. Drafts must be `ready_to_send` (set via finalize).
+  let subject = body.subject
+  let blocks = body.blocks
+  let preheader = sanitizePreheader(body.preheader)
+  let variants: VariantSpec[] | null = body.variants !== undefined ? parseVariantsInput(body.variants) : null
+
+  if (draftId) {
+    const draft = await getDraft(draftId, SITE_ID)
+    if (!draft) return jsonError('Draft nicht gefunden.', 404)
+    if (draft.status !== 'ready_to_send') {
+      return jsonError(`Draft ist nicht freigegeben (Status: ${draft.status}).`, 409)
+    }
+    subject = draft.subject
+    blocks = draft.blocks
+    preheader = sanitizePreheader(draft.preheader)
+    if (draft.abTestEnabled && draft.subjectVariantB) {
+      // Variants come from the draft itself; reject any inline variants body
+      // to avoid silent overrides — the UI shouldn't be sending both.
+      variants = parseVariantsInput([
+        { label: 'A', subject: draft.subject },
+        { label: 'B', subject: draft.subjectVariantB },
+      ])
+    }
+  } else if (body.variants !== undefined && variants === null) {
     return jsonError('Ungültige A/B-Varianten (2-5 Einträge mit "label" und "subject").', 400)
   }
 
@@ -374,6 +399,7 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
       scheduled_for: scheduledIso,
       status: 'scheduled',
     })
+    if (draftId) await markDraftSent(draftId, sendId, SITE_ID)
 
     let enqueued: { enqueued: number; earliest?: string; latest?: string }
     if (variants) {
@@ -438,6 +464,7 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
     recipient_count: subscribers.length,
     blocks_json: JSON.stringify(blocks),
   })
+  if (draftId) await markDraftSent(draftId, sendId, SITE_ID)
 
   if (variants) {
     const assigned = assignVariants(subscribers, variants)
