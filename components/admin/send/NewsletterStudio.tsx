@@ -54,6 +54,7 @@ interface NewsletterStudioProps {
   viewport: 'desktop' | 'mobile'
   onViewportChange: (viewport: 'desktop' | 'mobile') => void
   onExit: () => void
+  extraHeaderActions?: React.ReactNode
 }
 
 const PREHEADER_MAX = 200
@@ -80,6 +81,7 @@ export default function NewsletterStudio({
   viewport,
   onViewportChange,
   onExit,
+  extraHeaderActions,
 }: NewsletterStudioProps) {
   const subjectARef = useRef<HTMLInputElement | null>(null)
   const subjectBRef = useRef<HTMLInputElement | null>(null)
@@ -180,17 +182,20 @@ export default function NewsletterStudio({
           </label>
         </div>
 
-        <button
-          type="button"
-          onClick={onExit}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[var(--text)] px-3.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--background)] transition-opacity hover:opacity-80"
-          title="Studio verlassen (ESC)"
-        >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l6 6m0-6l-6 6" />
-          </svg>
-          Schliessen
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {extraHeaderActions}
+          <button
+            type="button"
+            onClick={onExit}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[var(--text)] px-3.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--background)] transition-opacity hover:opacity-80"
+            title="Studio verlassen (ESC)"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l6 6m0-6l-6 6" />
+            </svg>
+            Schliessen
+          </button>
+        </div>
       </header>
 
       {/* Body */}
