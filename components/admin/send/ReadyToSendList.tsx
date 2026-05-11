@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/ui/ToastProvider'
 import { parseDbDate } from '@/components/admin/types'
 import type { NewsletterDraft } from '@/lib/newsletter-drafts'
@@ -18,6 +19,7 @@ function formatRelative(dateStr: string | null): string {
 
 export default function ReadyToSendList() {
   const toast = useToast()
+  const router = useRouter()
   const [drafts, setDrafts] = useState<NewsletterDraft[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -41,12 +43,11 @@ export default function ReadyToSendList() {
     try {
       const res = await fetch(`/api/admin/newsletter/drafts/${id}/reopen`, { method: 'POST' })
       if (!res.ok) throw new Error('reopen failed')
-      toast.success('Entwurf wieder geöffnet — im Bereich «Erstellen» bearbeiten.')
-      await load()
+      router.push(`/admin/newsletter/compose/${id}`)
     } catch {
       toast.error('Wieder öffnen fehlgeschlagen.')
     }
-  }, [load, toast])
+  }, [router, toast])
 
   return (
     <div>
