@@ -1,10 +1,17 @@
 export interface Subscriber {
   id: number
   email: string
+  firstName: string | null
   status: 'pending' | 'active' | 'blocked'
   createdAt: string
   confirmedAt: string | null
   blockedAt: string | null
+  // Listen, in denen der Subscriber aktuell Mitglied ist.
+  lists: { id: number; name: string; isPrimary: boolean }[]
+  // Engagement und Tags lebten urspruenglich in dieser Sicht — nach dem
+  // Subscription-Center-Refactor zeigt die Stammlisten-Tabelle diese nicht
+  // mehr; sie bleiben optional fuer Konsumenten, die das alte Interface
+  // teilen (Drawer laedt Detail separat).
   engagement_score?: number | null
   engagement_tier?: 'active' | 'moderate' | 'dormant' | 'cold' | null
   tags?: string[]

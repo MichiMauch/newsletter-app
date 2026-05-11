@@ -9,10 +9,22 @@ import {
 
 export type Subscriber = typeof newsletterSubscribers.$inferSelect
 
+export interface SubscriberListMembershipSummary {
+  id: number
+  name: string
+  isPrimary: boolean
+}
+
 export interface SubscriberEnriched extends Subscriber {
-  engagement_score: number | null
-  engagement_tier: 'active' | 'moderate' | 'dormant' | 'cold' | null
-  tags: string[]
+  // Engagement und Tags lebten urspruenglich in dieser Sicht — nach dem
+  // Subscription-Center-Refactor zeigt die Stammlisten-UI nur noch Identitaet
+  // + Listen-Mitgliedschaften. Die Felder bleiben optional fuer Aufrufer, die
+  // noch das alte Schema erwarten; geliefert werden sie hier nicht mehr.
+  engagement_score?: number | null
+  engagement_tier?: 'active' | 'moderate' | 'dormant' | 'cold' | null
+  tags?: string[]
+  // Listen, in denen der Subscriber aktuell Mitglied ist (cross-list view).
+  lists: SubscriberListMembershipSummary[]
 }
 
 export interface ComplianceContext {
@@ -257,21 +269,25 @@ export async function getAllSubscribers(siteId: string): Promise<Subscriber[]> {
 
 export async function getAllSubscribersEnriched(siteId: string): Promise<SubscriberEnriched[]> {
   const db = getDb()
-  // Eine Query: Subscribers + Engagement (LEFT JOIN) + Tags (GROUP_CONCAT)
+  // Stammlisten-Sicht zeigt Identitaet + Listen-Mitgliedschaften (Cross-List).
+  // Engagement und Tags leben in der ListsTab-Detailsicht und im Drawer, daher
+  // hier kein JOIN mehr darauf. lists_concat speist die "In Listen"-Spalte —
+  // Format pro Eintrag: "<id>:<isPrimary>:<name>", getrennt mit "||".
+  // Listen-Namen koennen "||" theoretisch enthalten — daher wird der Name als
+  // letztes Feld via split-with-limit wieder zusammengefuegt.
   const rows = await db.run(sql`
     SELECT
       s.id, s.site_id, s.email, s.status, s.token, s.created_at, s.confirmed_at, s.blocked_at,
       s.subscribed_ip, s.subscribed_user_agent, s.confirmed_ip, s.confirmed_user_agent,
       s.first_name,
-      se.score AS engagement_score, se.tier AS engagement_tier,
       (
-        SELECT GROUP_CONCAT(t.tag, '||')
-        FROM subscriber_tags t
-        WHERE t.site_id = s.site_id AND t.subscriber_email = s.email
-      ) AS tags_concat
+        SELECT GROUP_CONCAT(sl.id || ':' || sl.is_primary || ':' || sl.name, '||')
+        FROM subscriber_list_members slm
+        JOIN subscriber_lists sl ON sl.id = slm.list_id
+        WHERE slm.subscriber_id = s.id
+        ORDER BY sl.is_primary DESC, sl.name
+      ) AS lists_concat
     FROM newsletter_subscribers s
-    LEFT JOIN subscriber_engagement se
-      ON se.site_id = s.site_id AND se.subscriber_email = s.email
     WHERE s.site_id = ${siteId}
     ORDER BY s.created_at DESC
   `)
@@ -289,10 +305,33 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
     confirmedIp: (r.confirmed_ip as string | null) ?? null,
     confirmedUserAgent: (r.confirmed_user_agent as string | null) ?? null,
     firstName: (r.first_name as string | null) ?? null,
-    engagement_score: (r.engagement_score as number | null) ?? null,
-    engagement_tier: (r.engagement_tier as SubscriberEnriched['engagement_tier']) ?? null,
-    tags: r.tags_concat ? (r.tags_concat as string).split('||') : [],
+    lists: parseListsConcat(r.lists_concat as string | null),
   }))
+}
+
+function parseListsConcat(raw: string | null): SubscriberListMembershipSummary[] {
+  if (!raw) return []
+  const out: SubscriberListMembershipSummary[] = []
+  for (const entry of raw.split('||')) {
+    // Format: "<id>:<is_primary>:<name>" — Name kann ":" enthalten, daher
+    // splitWithLimit-Style: erste zwei Tokens parsen, Rest als Name.
+    const firstColon = entry.indexOf(':')
+    if (firstColon < 0) continue
+    const secondColon = entry.indexOf(':', firstColon + 1)
+    if (secondColon < 0) continue
+    const id = Number(entry.slice(0, firstColon))
+    const isPrimary = entry.slice(firstColon + 1, secondColon) === '1'
+    const name = entry.slice(secondColon + 1)
+    if (!Number.isFinite(id) || !name) continue
+    out.push({ id, name, isPrimary })
+  }
+  // SQLite GROUP_CONCAT garantiert keine bestimmte Reihenfolge — daher
+  // hier sortieren: Hauptliste zuerst, dann alphabetisch.
+  out.sort((a, b) => {
+    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return out
 }
 
 export async function unsubscribeById(id: number): Promise<void> {

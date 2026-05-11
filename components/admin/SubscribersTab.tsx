@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import type { Subscriber, ConfirmActionState } from './types'
 import { formatDate, statusBadge } from './types'
 import { useToast } from '../ui/ToastProvider'
-import { EngagementBadge } from '../ui/EngagementIndicator'
 import SubscriberDrawer from './SubscriberDrawer'
 
 interface SubscribersTabProps {
@@ -14,29 +13,36 @@ interface SubscribersTabProps {
 }
 
 type StatusFilter = 'all' | 'active' | 'pending' | 'blocked'
-type TierFilter = 'all' | 'active' | 'moderate' | 'dormant' | 'cold' | 'no-data'
+type ListFilter = 'all' | 'none' | number  // number = listId
 
 export default function SubscribersTab({ subscribers, setConfirmAction, loadData }: SubscribersTabProps) {
   const toast = useToast()
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [tierFilter, setTierFilter] = useState<TierFilter>('all')
-  const [tagFilter, setTagFilter] = useState<string>('all')
+  const [listFilter, setListFilter] = useState<ListFilter>('all')
   const [drawerEmail, setDrawerEmail] = useState<string | null>(null)
   const drawerSubscriber = drawerEmail ? subscribers.find((s) => s.email === drawerEmail) ?? null : null
 
-  const allTags = useMemo(() => {
-    const set = new Set<string>()
-    subscribers.forEach((s) => s.tags?.forEach((t) => set.add(t)))
-    return [...set].sort()
+  // Eindeutige Listen-Eintraege fuer den Filter-Dropdown — Hauptliste zuerst,
+  // danach alphabetisch. Aus den Memberships aller Subscriber dedupliziert.
+  const allLists = useMemo(() => {
+    const map = new Map<number, { id: number; name: string; isPrimary: boolean }>()
+    for (const s of subscribers) {
+      for (const l of s.lists ?? []) {
+        if (!map.has(l.id)) map.set(l.id, l)
+      }
+    }
+    return [...map.values()].sort((a, b) => {
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
   }, [subscribers])
 
   const filtered = useMemo(() => subscribers.filter((s) => {
     if (statusFilter !== 'all' && s.status !== statusFilter) return false
-    if (tierFilter === 'no-data' && s.engagement_tier) return false
-    if (tierFilter !== 'all' && tierFilter !== 'no-data' && s.engagement_tier !== tierFilter) return false
-    if (tagFilter !== 'all' && !(s.tags ?? []).includes(tagFilter)) return false
+    if (listFilter === 'none' && (s.lists?.length ?? 0) > 0) return false
+    if (typeof listFilter === 'number' && !(s.lists ?? []).some((l) => l.id === listFilter)) return false
     return true
-  }), [subscribers, statusFilter, tierFilter, tagFilter])
+  }), [subscribers, statusFilter, listFilter])
 
   async function postAction(body: object, successMsg: string) {
     try {
@@ -98,26 +104,22 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
           <option value="blocked">Blockiert</option>
         </select>
         <select
-          value={tierFilter}
-          onChange={(e) => setTierFilter(e.target.value as TierFilter)}
+          value={listFilter === 'all' ? 'all' : listFilter === 'none' ? 'none' : String(listFilter)}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v === 'all') setListFilter('all')
+            else if (v === 'none') setListFilter('none')
+            else setListFilter(parseInt(v, 10))
+          }}
           className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--text)]"
+          disabled={allLists.length === 0}
         >
-          <option value="all">Alle Tiers</option>
-          <option value="active">Aktiv</option>
-          <option value="moderate">Mässig</option>
-          <option value="dormant">Schlafend</option>
-          <option value="cold">Kalt</option>
-          <option value="no-data">Ohne Score</option>
-        </select>
-        <select
-          value={tagFilter}
-          onChange={(e) => setTagFilter(e.target.value)}
-          className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--text)]"
-          disabled={allTags.length === 0}
-        >
-          <option value="all">Alle Tags</option>
-          {allTags.map((t) => (
-            <option key={t} value={t}>{t}</option>
+          <option value="all">Alle Listen</option>
+          <option value="none">In keiner Liste</option>
+          {allLists.map((l) => (
+            <option key={l.id} value={String(l.id)}>
+              {l.isPrimary ? '★ ' : ''}{l.name}
+            </option>
           ))}
         </select>
         <span className="ml-auto text-xs text-[var(--text-secondary)]">
@@ -137,10 +139,10 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">E-Mail</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Name</th>
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Status</th>
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Engagement</th>
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Tags</th>
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Datum</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">In Listen</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Angemeldet</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
@@ -156,20 +158,28 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
                     }`}
                   >
                     <td className="px-5 py-3 font-medium text-[var(--text)]">{s.email}</td>
+                    <td className="px-5 py-3 text-[var(--text-secondary)]">
+                      {s.firstName ?? <span className="text-[var(--text-muted)]">—</span>}
+                    </td>
                     <td className="px-5 py-3">
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${sBadge.cls}`}>
                         {sBadge.label}
                       </span>
                     </td>
                     <td className="px-5 py-3">
-                      <EngagementBadge tier={s.engagement_tier} score={s.engagement_score} />
-                    </td>
-                    <td className="px-5 py-3">
-                      {s.tags && s.tags.length > 0 ? (
+                      {s.lists.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {s.tags.map((t) => (
-                            <span key={t} className="inline-flex rounded-full bg-[var(--bg)] border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
-                              {t}
+                          {s.lists.map((l) => (
+                            <span
+                              key={l.id}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${
+                                l.isPrimary
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+                                  : 'border-[var(--border)] bg-[var(--bg)] text-[var(--text-secondary)]'
+                              }`}
+                              title={l.isPrimary ? 'Hauptliste' : undefined}
+                            >
+                              {l.isPrimary ? '★ ' : ''}{l.name}
                             </span>
                           ))}
                         </div>
@@ -177,7 +187,7 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
                         <span className="text-xs text-[var(--text-muted)]">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-[var(--text-secondary)]">
+                    <td className="px-5 py-3 whitespace-nowrap text-[var(--text-secondary)]">
                       {formatDate(s.createdAt)}
                     </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
