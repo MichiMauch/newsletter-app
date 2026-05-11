@@ -17,16 +17,22 @@ function formatRelative(dateStr: string | null): string {
   return d.toLocaleDateString('de-CH', { day: 'numeric', month: 'short' })
 }
 
+function formatScheduledFor(dateStr: string | null): string {
+  if (!dateStr) return ''
+  return parseDbDate(dateStr).toLocaleString('de-CH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 export default function ReadyToSendList() {
   const toast = useToast()
   const router = useRouter()
   const [drafts, setDrafts] = useState<NewsletterDraft[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingCancelId, setPendingCancelId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/newsletter/drafts?status=ready_to_send')
+      const res = await fetch('/api/admin/newsletter/drafts?status=ready_to_send,scheduled')
       if (!res.ok) throw new Error('load failed')
       const data = await res.json()
       setDrafts(data.drafts ?? [])
@@ -48,6 +54,13 @@ export default function ReadyToSendList() {
       toast.error('Wieder öffnen fehlgeschlagen.')
     }
   }, [router, toast])
+
+  const confirmCancelSchedule = useCallback(async () => {
+    if (!pendingCancelId) return
+    const id = pendingCancelId
+    setPendingCancelId(null)
+    await handleReopen(id)
+  }, [pendingCancelId, handleReopen])
 
   return (
     <div>
@@ -87,12 +100,17 @@ export default function ReadyToSendList() {
           {drafts.map((draft) => {
             const title = draft.title?.trim() || draft.subject?.trim() || '(Ohne Titel)'
             const tested = !!draft.lastTestedAt
+            const isScheduled = draft.status === 'scheduled'
             return (
               <li key={draft.id} className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-4 py-3 last:border-b-0">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-[var(--text)]">{title}</span>
-                    {tested ? (
+                    {isScheduled ? (
+                      <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
+                        Versand geplant
+                      </span>
+                    ) : tested ? (
                       <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
                         Getestet
                       </span>
@@ -103,31 +121,71 @@ export default function ReadyToSendList() {
                     )}
                   </div>
                   <div className="mt-1 text-xs text-[var(--text-muted)]">
-                    Freigegeben {formatRelative(draft.finalizedAt)}
-                    {tested && draft.lastTestedTo && (
-                      <> · zuletzt an <span className="font-mono">{draft.lastTestedTo}</span> {formatRelative(draft.lastTestedAt)}</>
+                    {isScheduled ? (
+                      <>Geplant für <span className="text-[var(--text)]">{formatScheduledFor(draft.scheduledFor)}</span></>
+                    ) : (
+                      <>
+                        Freigegeben {formatRelative(draft.finalizedAt)}
+                        {tested && draft.lastTestedTo && (
+                          <> · zuletzt an <span className="font-mono">{draft.lastTestedTo}</span> {formatRelative(draft.lastTestedAt)}</>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleReopen(draft.id)}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--background-elevated)]"
-                  >
-                    Wieder öffnen
-                  </button>
-                  <Link
-                    href={`/admin/newsletter/send/${draft.id}`}
-                    className="rounded-lg bg-primary-500 px-3 py-1.5 text-xs font-medium text-white shadow hover:opacity-90"
-                  >
-                    Senden →
-                  </Link>
+                  {isScheduled ? (
+                    <button
+                      type="button"
+                      onClick={() => setPendingCancelId(draft.id)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--background-elevated)]"
+                    >
+                      Versand abbrechen & bearbeiten
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleReopen(draft.id)}
+                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--background-elevated)]"
+                      >
+                        Wieder öffnen
+                      </button>
+                      <Link
+                        href={`/admin/newsletter/send/${draft.id}`}
+                        className="rounded-lg bg-primary-500 px-3 py-1.5 text-xs font-medium text-white shadow hover:opacity-90"
+                      >
+                        Senden →
+                      </Link>
+                    </>
+                  )}
                 </div>
               </li>
             )
           })}
         </ul>
+      )}
+
+      {pendingCancelId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl">
+            <h3 className="mb-3 text-lg font-semibold text-[var(--text)]">Geplanten Versand abbrechen?</h3>
+            <p className="mb-6 text-sm text-[var(--text-secondary)]">
+              Der bereits geplante Versand wird gestoppt und der Entwurf zurück in den Bearbeitungs-Modus gesetzt.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setPendingCancelId(null)} className="glass-button">
+                Doch nicht
+              </button>
+              <button
+                onClick={confirmCancelSchedule}
+                className="rounded-xl bg-primary-500 px-5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+              >
+                Abbrechen & bearbeiten
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

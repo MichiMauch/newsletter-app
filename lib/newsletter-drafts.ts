@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { getDb } from './db'
-import { newsletterDrafts } from './schema'
+import { newsletterDrafts, newsletterSends } from './schema'
 import type { NewsletterBlock } from './newsletter-blocks'
 
 export type DraftStatus = 'draft' | 'ready_to_send' | 'scheduled' | 'sent' | 'archived'
@@ -22,6 +22,7 @@ export interface NewsletterDraft {
   finalizedAt: string | null
   sentAt: string | null
   sentSendId: number | null
+  scheduledFor: string | null
   createdAt: string
   updatedAt: string
 }
@@ -49,7 +50,7 @@ function parseBlocks(json: string): NewsletterBlock[] {
   }
 }
 
-function rowToDraft(row: NewsletterDraftRow): NewsletterDraft {
+function rowToDraft(row: NewsletterDraftRow, scheduledFor: string | null = null): NewsletterDraft {
   return {
     id: row.id,
     siteId: row.siteId,
@@ -65,6 +66,7 @@ function rowToDraft(row: NewsletterDraftRow): NewsletterDraft {
     finalizedAt: row.finalizedAt,
     sentAt: row.sentAt,
     sentSendId: row.sentSendId,
+    scheduledFor,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -114,11 +116,15 @@ export async function listDrafts(opts: ListDraftsOptions): Promise<NewsletterDra
     }
   }
   const rows = await getDb()
-    .select()
+    .select({
+      draft: newsletterDrafts,
+      scheduledFor: newsletterSends.scheduledFor,
+    })
     .from(newsletterDrafts)
+    .leftJoin(newsletterSends, eq(newsletterDrafts.sentSendId, newsletterSends.id))
     .where(and(...conditions))
     .orderBy(desc(newsletterDrafts.updatedAt))
-  return rows.map(rowToDraft)
+  return rows.map((r) => rowToDraft(r.draft, r.scheduledFor))
 }
 
 export async function getDraft(id: string, siteId?: string): Promise<NewsletterDraft | null> {
