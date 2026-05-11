@@ -46,8 +46,8 @@ export async function GET(request: Request) {
         .from(newsletterSubscribers)
         .where(and(
           eq(newsletterSubscribers.siteId, SITE_ID),
-          isNotNull(newsletterSubscribers.unsubscribedAt),
-          gte(newsletterSubscribers.unsubscribedAt, dayStart),
+          isNotNull(newsletterSubscribers.blockedAt),
+          gte(newsletterSubscribers.blockedAt, dayStart),
         )),
       db.select({ count: sql<number>`COUNT(*)` })
         .from(newsletterRecipients)

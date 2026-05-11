@@ -13,7 +13,7 @@ interface SubscribersTabProps {
   loadData: () => void
 }
 
-type StatusFilter = 'all' | 'confirmed' | 'pending' | 'unsubscribed'
+type StatusFilter = 'all' | 'active' | 'pending' | 'blocked'
 type TierFilter = 'all' | 'active' | 'moderate' | 'dormant' | 'cold' | 'no-data'
 
 export default function SubscribersTab({ subscribers, setConfirmAction, loadData }: SubscribersTabProps) {
@@ -93,9 +93,9 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
           className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--text)]"
         >
           <option value="all">Alle Status</option>
-          <option value="confirmed">Bestätigt</option>
+          <option value="active">Aktiv</option>
           <option value="pending">Ausstehend</option>
-          <option value="unsubscribed">Abgemeldet</option>
+          <option value="blocked">Blockiert</option>
         </select>
         <select
           value={tierFilter}
@@ -181,7 +181,7 @@ export default function SubscribersTab({ subscribers, setConfirmAction, loadData
                       {formatDate(s.createdAt)}
                     </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                      {s.status !== 'unsubscribed' && (
+                      {s.status !== 'blocked' && (
                         <button
                           onClick={() => handleUnsubscribe(s.id, s.email)}
                           className="mr-2 rounded-md px-2 py-1 text-xs text-amber-700 transition-colors hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-900/20"

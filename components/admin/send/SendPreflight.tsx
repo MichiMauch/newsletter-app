@@ -55,7 +55,7 @@ export default function SendPreflight({ draftId }: Props) {
         setDraft(draftData.draft)
         setConfirmedCount(
           Array.isArray(mainData.subscribers)
-            ? mainData.subscribers.filter((s: { status: string }) => s.status === 'confirmed').length
+            ? mainData.subscribers.filter((s: { status: string }) => s.status === 'active').length
             : 0,
         )
         setAvailableLists(

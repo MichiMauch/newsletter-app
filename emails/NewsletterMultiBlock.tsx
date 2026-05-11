@@ -25,6 +25,9 @@ export interface NewsletterMultiBlockProps {
   blocks: NewsletterBlock[]
   postsMap: Record<string, PostRef>
   unsubscribeUrl: string
+  // Optional: Magic-Link zum Subscription Center. Wird im Footer
+  // zusaetzlich zum Unsubscribe-Link angezeigt, wenn vorhanden.
+  preferencesUrl?: string
 }
 
 function cleanSlug(slug: string): string {
@@ -230,6 +233,7 @@ export function NewsletterMultiBlock({
   blocks,
   postsMap,
   unsubscribeUrl,
+  preferencesUrl,
 }: NewsletterMultiBlockProps) {
   const primaryColor = sanitizeColor(site.primary_color)
   const accentColor = sanitizeColor(site.accent_color)
@@ -371,6 +375,18 @@ export function NewsletterMultiBlock({
               </Text>
             )}
             <Text style={{ margin: 0 }}>
+              {preferencesUrl ? (
+                <>
+                  <Link
+                    href={preferencesUrl}
+                    className="e-link-muted"
+                    style={{ color: '#9ca3af', fontSize: 12, textDecoration: 'underline' }}
+                  >
+                    Einstellungen
+                  </Link>
+                  <span style={{ color: '#9ca3af', fontSize: 12 }}>{' · '}</span>
+                </>
+              ) : null}
               <Link
                 href={unsubscribeUrl}
                 className="e-link-muted"

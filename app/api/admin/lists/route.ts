@@ -1,6 +1,9 @@
 import { isAuthenticated } from '@/lib/admin-auth'
+import { getDb } from '@/lib/db'
+import { newsletterSubscribers } from '@/lib/schema'
+import { and, eq } from 'drizzle-orm'
 import {
-  getLists, getList, createList, renameList, deleteList,
+  getLists, getList, createList, renameList, deleteList, setPrimaryList,
   addMembers, removeMember, getListMembers,
 } from '@/lib/lists'
 import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
@@ -88,6 +91,19 @@ export async function POST(request: Request) {
       return Response.json({ ok: true })
     }
 
+    case 'set-primary': {
+      const id = parseInt(String(body.id), 10)
+      const makePrimary = body.makePrimary !== false
+      if (Number.isNaN(id)) {
+        return Response.json({ error: 'id erforderlich.' }, { status: 400 })
+      }
+      if (!(await ensureOwn(id))) {
+        return Response.json({ error: 'Liste nicht gefunden.' }, { status: 404 })
+      }
+      await setPrimaryList(id, makePrimary)
+      return Response.json({ ok: true })
+    }
+
     case 'add-members': {
       const listId = parseInt(String(body.listId), 10)
       if (Number.isNaN(listId)) {
@@ -106,14 +122,26 @@ export async function POST(request: Request) {
 
     case 'remove-member': {
       const listId = parseInt(String(body.listId), 10)
+      // Bevorzugt subscriberId; alternativ email (legacy UI vor dem
+      // Subscription-Center-Refactor) — dann erst Subscriber lookup.
+      let subscriberId = typeof body.subscriberId === 'number' ? body.subscriberId : NaN
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
-      if (Number.isNaN(listId) || !email) {
-        return Response.json({ error: 'listId und email erforderlich.' }, { status: 400 })
+      if (Number.isNaN(listId) || (Number.isNaN(subscriberId) && !email)) {
+        return Response.json({ error: 'listId und (subscriberId|email) erforderlich.' }, { status: 400 })
       }
       if (!(await ensureOwn(listId))) {
         return Response.json({ error: 'Liste nicht gefunden.' }, { status: 404 })
       }
-      const removed = await removeMember(listId, email)
+      if (Number.isNaN(subscriberId)) {
+        const db = getDb()
+        const sub = await db.select({ id: newsletterSubscribers.id })
+          .from(newsletterSubscribers)
+          .where(and(eq(newsletterSubscribers.siteId, SITE_ID), eq(newsletterSubscribers.email, email)))
+          .limit(1)
+        if (!sub[0]) return Response.json({ ok: true, removed: false })
+        subscriberId = sub[0].id
+      }
+      const removed = await removeMember(listId, subscriberId)
       return Response.json({ ok: true, removed })
     }
 

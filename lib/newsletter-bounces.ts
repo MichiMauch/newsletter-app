@@ -18,7 +18,7 @@ export interface BouncedAddressRow {
   last_source: 'newsletter' | 'automation'
   newsletter_bounces: number
   automation_bounces: number
-  subscriber_status: 'pending' | 'confirmed' | 'unsubscribed' | null
+  subscriber_status: 'pending' | 'active' | 'blocked' | null
 }
 
 export interface BounceOverview {
@@ -133,7 +133,7 @@ export async function getBounceOverview(siteId: string, limit = 200): Promise<Bo
     last_source: ((r.last_source as string) === 'automation' ? 'automation' : 'newsletter') as 'newsletter' | 'automation',
     newsletter_bounces: (r.newsletter_bounces as number) || 0,
     automation_bounces: (r.automation_bounces as number) || 0,
-    subscriber_status: (r.subscriber_status as 'pending' | 'confirmed' | 'unsubscribed' | null) ?? null,
+    subscriber_status: (r.subscriber_status as 'pending' | 'active' | 'blocked' | null) ?? null,
   }))
   const totalsRow = totalsRes.rows?.[0] ?? {}
   const total_bounces = by_subtype.reduce((sum, b) => sum + b.count, 0)

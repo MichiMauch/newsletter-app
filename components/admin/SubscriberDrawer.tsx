@@ -10,10 +10,10 @@ interface ProfilePayload {
   subscriber: {
     id: number
     email: string
-    status: 'pending' | 'confirmed' | 'unsubscribed'
+    status: 'pending' | 'active' | 'blocked'
     createdAt: string
     confirmedAt: string | null
-    unsubscribedAt: string | null
+    blockedAt: string | null
     subscribedIp: string | null
     subscribedUserAgent: string | null
     confirmedIp: string | null
@@ -235,8 +235,8 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
                 )}
                 <KV label="Angemeldet" value={formatDate(profile.subscriber.createdAt)} />
                 <KV label="Bestätigt" value={profile.subscriber.confirmedAt ? formatDate(profile.subscriber.confirmedAt) : '—'} />
-                {profile.subscriber.unsubscribedAt && (
-                  <KV label="Abgemeldet" value={formatDate(profile.subscriber.unsubscribedAt)} />
+                {profile.subscriber.blockedAt && (
+                  <KV label="Blockiert" value={formatDate(profile.subscriber.blockedAt)} />
                 )}
               </Section>
 
@@ -336,7 +336,7 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
         </div>
 
         <footer className="flex flex-wrap gap-2 border-t border-[var(--border)] bg-[var(--background-card)] px-5 py-3">
-          {profile?.subscriber.status !== 'unsubscribed' && (
+          {profile?.subscriber.status !== 'blocked' && (
             <button
               onClick={handleUnsubscribe}
               disabled={busy}
@@ -449,11 +449,11 @@ function buildJourney(profile: ProfilePayload): JourneyEvent[] {
     })
   }
 
-  if (profile.subscriber.unsubscribedAt) {
+  if (profile.subscriber.blockedAt) {
     events.push({
       type: 'unsubscribe',
-      at: profile.subscriber.unsubscribedAt,
-      title: 'Abgemeldet',
+      at: profile.subscriber.blockedAt,
+      title: 'Blockiert',
     })
   }
 

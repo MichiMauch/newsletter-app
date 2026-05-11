@@ -7,26 +7,30 @@
  * GET:  Browser-Fallback — leitet zur gestylten /unsubscribe Page weiter.
  * POST: One-Click — verarbeitet still und antwortet 200 ohne Body.
  *
+ * Token-Reihenfolge: zuerst List-Member-Token (= nur aus EINER Liste raus,
+ * Subscriber bleibt aktiv); fallback Subscriber-Token (= komplett abmelden,
+ * Status 'blocked' + alle Mitgliedschaften geloescht).
+ *
  * Per RFC 8058 muss diese Route ohne Login/Bestätigung funktionieren und
  * IMMER 2xx zurückgeben (auch bei unbekanntem Token), damit der Mail-Client
  * den Klick nicht als Fehlschlag wertet.
  */
 
-import { getSubscriberByToken, unsubscribeByToken } from '@/lib/newsletter'
+import { getSubscriberByToken, blockSubscriberCompletely } from '@/lib/newsletter'
 import { cancelEnrollments } from '@/lib/automation'
 import { removeMemberByToken } from '@/lib/lists'
 
 async function processUnsubscribe(token: string): Promise<void> {
-  // 1) Subscriber-Token (newsletter_subscribers)
+  // 1) List-Member-Token: nur diese eine Liste abmelden, Subscriber bleibt aktiv.
+  const listResult = await removeMemberByToken(token)
+  if (listResult.removed) return
+
+  // 2) Subscriber-Token: komplett abmelden — Status 'blocked' + alle Mitgliedschaften geloescht.
   const subscriber = await getSubscriberByToken(token)
   if (subscriber) {
     await cancelEnrollments(subscriber.email)
-    const ok = await unsubscribeByToken(token)
-    if (ok) return
+    await blockSubscriberCompletely(token)
   }
-
-  // 2) Listen-Member-Token (subscriber_list_members) — manuelle Listen
-  await removeMemberByToken(token)
 }
 
 function tokenFromUrl(url: string): string | null {
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const token = tokenFromUrl(request.url)
   // Immer auf die gestylte Seite weiterleiten — die übernimmt die Verarbeitung
-  // und zeigt Bestätigung/Fehler an.
+  // und zeigt Bestätigung/Übersicht der verbleibenden Listen an.
   const target = token ? `/unsubscribe?token=${encodeURIComponent(token)}` : '/unsubscribe'
   return Response.redirect(new URL(target, request.url), 303)
 }

@@ -38,11 +38,13 @@ async function main() {
       await targetDb.insert(newsletterSubscribers).values({
         siteId: 'kokomo',
         email: row.email as string,
-        status: row.status as 'pending' | 'confirmed' | 'unsubscribed',
+        // Legacy import: alte Werte 'confirmed' und 'unsubscribed' werden auf
+        // das neue Schema gemappt; alles andere bleibt 'pending'.
+        status: row.status === 'confirmed' ? 'active' : row.status === 'unsubscribed' ? 'blocked' : 'pending',
         token: row.token as string,
         createdAt: row.created_at as string,
         confirmedAt: row.confirmed_at as string | null,
-        unsubscribedAt: row.unsubscribed_at as string | null,
+        blockedAt: row.unsubscribed_at as string | null,
       }).onConflictDoNothing()
       inserted++
     } catch (err: unknown) {

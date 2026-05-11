@@ -9,6 +9,7 @@ export interface SubscriberListSummary {
   site_id: string
   name: string
   description: string | null
+  is_primary: boolean
   created_at: string
   member_count: number
 }
@@ -16,7 +17,10 @@ export interface SubscriberListSummary {
 export interface SubscriberListMember {
   id: number
   list_id: number
+  subscriber_id: number
   email: string
+  first_name: string | null
+  status: 'pending' | 'active' | 'blocked'
   token: string
   added_at: string
 }
@@ -37,6 +41,7 @@ export default function ListsTab() {
   const [renameValue, setRenameValue] = useState('')
   const [renameDescription, setRenameDescription] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [primaryBusy, setPrimaryBusy] = useState(false)
 
   useEffect(() => {
     void loadLists()
@@ -143,6 +148,25 @@ export default function ListsTab() {
     }
   }
 
+  async function handleTogglePrimary(id: number, currentlyPrimary: boolean) {
+    setPrimaryBusy(true)
+    try {
+      const res = await fetch('/api/admin/lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-primary', id, makePrimary: !currentlyPrimary }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Fehler beim Setzen der Hauptliste.')
+      toast.success(currentlyPrimary ? 'Hauptliste-Markierung entfernt.' : 'Als Hauptliste markiert.')
+      await loadLists()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Fehler')
+    } finally {
+      setPrimaryBusy(false)
+    }
+  }
+
   async function handleAddMembers() {
     if (!selectedListId || !bulkEmails.trim()) return
     const emails = bulkEmails
@@ -164,6 +188,7 @@ export default function ListsTab() {
       const parts: string[] = []
       if (data.added > 0) parts.push(`${data.added} hinzugefügt`)
       if (data.skipped_duplicate > 0) parts.push(`${data.skipped_duplicate} bereits drin`)
+      if (data.skipped_unknown > 0) parts.push(`${data.skipped_unknown} nicht in Stammliste`)
       if (data.skipped_invalid > 0) parts.push(`${data.skipped_invalid} ungültig`)
       toast.toast(data.added > 0 ? 'success' : 'info', parts.join(' · '))
 
@@ -177,17 +202,21 @@ export default function ListsTab() {
     }
   }
 
-  async function handleRemoveMember(email: string) {
+  async function handleRemoveMember(member: SubscriberListMember) {
     if (!selectedListId) return
     try {
       const res = await fetch('/api/admin/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove-member', listId: selectedListId, email }),
+        body: JSON.stringify({
+          action: 'remove-member',
+          listId: selectedListId,
+          subscriberId: member.subscriber_id,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Fehler beim Entfernen.')
-      toast.success(`${email} entfernt.`)
+      toast.success(`${member.email} entfernt.`)
       await loadMembers(selectedListId)
       await loadLists()
     } catch (err) {
@@ -209,7 +238,7 @@ export default function ListsTab() {
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Listenname (z. B. Test)"
+                placeholder="Listenname (z. B. Hauptnewsletter)"
                 className={inputCls}
               />
               <input
@@ -248,12 +277,19 @@ export default function ListsTab() {
                       onClick={() => loadMembers(l.id)}
                       className="min-w-0 flex-1 text-left"
                     >
-                      <div className="font-medium text-[var(--text)]">{l.name}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[var(--text)]">{l.name}</span>
+                        {l.is_primary && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">
+                            Hauptliste
+                          </span>
+                        )}
+                      </div>
                       {l.description && (
                         <div className="mt-0.5 text-xs text-[var(--text-secondary)]">{l.description}</div>
                       )}
                       <div className="mt-0.5 text-xs text-[var(--text-muted)]">
-                        {l.member_count} {l.member_count === 1 ? 'Empfänger' : 'Empfänger'}
+                        {l.member_count} Empfänger
                       </div>
                     </button>
                     {confirmDelete === l.id ? (
@@ -273,6 +309,18 @@ export default function ListsTab() {
                       </div>
                     ) : (
                       <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => handleTogglePrimary(l.id, l.is_primary)}
+                          disabled={primaryBusy}
+                          className={`rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
+                            l.is_primary
+                              ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/20'
+                              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-emerald-300 hover:text-emerald-700 dark:hover:border-emerald-700 dark:hover:text-emerald-300'
+                          }`}
+                          title={l.is_primary ? 'Diese Liste ist die Hauptliste der Site' : 'Als Hauptliste markieren (max. eine pro Site)'}
+                        >
+                          {l.is_primary ? '★ Hauptliste' : 'Als Hauptliste'}
+                        </button>
                         <button
                           onClick={() => loadMembers(l.id)}
                           className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
@@ -335,12 +383,14 @@ export default function ListsTab() {
           <div className="glass-card rounded-xl p-5">
             <h3 className="mb-1 text-sm font-semibold text-[var(--text)]">Adressen hinzufügen</h3>
             <p className="mb-3 text-xs text-[var(--text-secondary)]">
-              Eine pro Zeile, oder durch Komma/Semikolon getrennt. Beliebige Mail-Adressen erlaubt.
+              Eine pro Zeile, oder durch Komma/Semikolon getrennt. <strong>Nur Adressen, die bereits in der
+              Stammliste existieren</strong>, können hinzugefügt werden — neue Subscriber legst du über die
+              Stammliste mit Double-Opt-In an.
             </p>
             <textarea
               value={bulkEmails}
               onChange={(e) => setBulkEmails(e.target.value)}
-              placeholder="test@example.com&#10;michi@kokomo.house"
+              placeholder="alice@example.com&#10;michi@kokomo.house"
               rows={4}
               className={inputCls + ' font-mono text-xs'}
             />
@@ -359,22 +409,38 @@ export default function ListsTab() {
           <div className="glass-card overflow-hidden rounded-xl">
             <div className="border-b border-[var(--border)] px-5 py-3">
               <h4 className="font-medium text-[var(--text)]">
-                {selectedList?.name ?? 'Liste'} ({members.length} {members.length === 1 ? 'Empfänger' : 'Empfänger'})
+                {selectedList?.name ?? 'Liste'} ({members.length} Empfänger)
               </h4>
             </div>
             {loadingMembers ? (
               <div className="p-6 text-center text-[var(--text-secondary)]">Laden…</div>
             ) : members.length === 0 ? (
               <div className="p-6 text-center text-[var(--text-secondary)]">
-                Noch keine Adressen. Füge oben welche hinzu.
+                Noch keine Mitglieder. Füge oben Adressen aus der Stammliste hinzu.
               </div>
             ) : (
               <div className="divide-y divide-[var(--border)]">
                 {members.map((m) => (
                   <div key={m.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                    <div className="min-w-0 flex-1 text-sm text-[var(--text)]">{m.email}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-sm text-[var(--text)]">
+                        {m.email}
+                        {m.status !== 'active' && (
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            m.status === 'blocked'
+                              ? 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
+                              : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
+                          }`}>
+                            {m.status === 'blocked' ? 'blockiert' : 'ausstehend'}
+                          </span>
+                        )}
+                      </div>
+                      {m.first_name && (
+                        <div className="text-xs text-[var(--text-secondary)]">{m.first_name}</div>
+                      )}
+                    </div>
                     <button
-                      onClick={() => handleRemoveMember(m.email)}
+                      onClick={() => handleRemoveMember(m)}
                       className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400"
                     >
                       Entfernen

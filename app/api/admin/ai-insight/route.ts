@@ -59,7 +59,7 @@ async function collectFacts(type: Insight): Promise<string> {
     const [[confirmed], [newSubs], recentSends] = await Promise.all([
       db.select({ c: sql<number>`COUNT(*)` })
         .from(newsletterSubscribers)
-        .where(and(eq(newsletterSubscribers.siteId, SITE_ID), eq(newsletterSubscribers.status, 'confirmed'))),
+        .where(and(eq(newsletterSubscribers.siteId, SITE_ID), eq(newsletterSubscribers.status, 'active'))),
       db.select({ c: sql<number>`COUNT(*)` })
         .from(newsletterSubscribers)
         .where(and(eq(newsletterSubscribers.siteId, SITE_ID), gte(newsletterSubscribers.createdAt, since))),

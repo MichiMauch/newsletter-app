@@ -36,7 +36,7 @@ export async function getSubscriberGrowth(siteId: string): Promise<SubscriberGro
   const rows = await db.run(sql`
     SELECT strftime('%Y-%m', confirmed_at) as month, COUNT(*) as new_count
     FROM newsletter_subscribers
-    WHERE site_id = ${siteId} AND status = 'confirmed' AND confirmed_at IS NOT NULL
+    WHERE site_id = ${siteId} AND status = 'active' AND confirmed_at IS NOT NULL
     GROUP BY month ORDER BY month ASC
   `)
   let cumulative = 0

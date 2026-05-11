@@ -103,7 +103,7 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
   const [automationFullscreen, setAutomationFullscreen] = useState(false)
   const [copilotOpen, setCopilotOpen] = useState(false)
 
-  const confirmedCount = subscribers.filter((s) => s.status === 'confirmed').length
+  const confirmedCount = subscribers.filter((s) => s.status === 'active').length
 
   useEffect(() => {
     loadData()

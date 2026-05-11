@@ -92,7 +92,7 @@ export async function predictEngagement(
     .from(newsletterSubscribers)
     .where(and(
       eq(newsletterSubscribers.siteId, siteId),
-      eq(newsletterSubscribers.status, 'confirmed'),
+      eq(newsletterSubscribers.status, 'active'),
     ))
   const totalConfirmed = totalRow[0]?.c ?? 0
 
@@ -116,7 +116,7 @@ export async function predictEngagement(
       and(
         eq(newsletterSubscribers.siteId, subscriberTagSignals.siteId),
         eq(newsletterSubscribers.email, subscriberTagSignals.subscriberEmail),
-        eq(newsletterSubscribers.status, 'confirmed'),
+        eq(newsletterSubscribers.status, 'active'),
       ),
     )
     .where(and(
@@ -152,7 +152,7 @@ export async function predictEngagement(
       and(
         eq(newsletterSubscribers.siteId, subscriberTagSignals.siteId),
         eq(newsletterSubscribers.email, subscriberTagSignals.subscriberEmail),
-        eq(newsletterSubscribers.status, 'confirmed'),
+        eq(newsletterSubscribers.status, 'active'),
       ),
     )
     .where(and(

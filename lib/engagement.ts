@@ -130,14 +130,14 @@ export async function computeEngagementScore(siteId: string, email: string): Pro
   return { score, tier, sends_90d: sends90d, opens_90d: opens90d, clicks_90d: clicks90d, last_open_at: lastOpenAt, last_click_at: lastClickAt }
 }
 
-// ─── Recompute für alle confirmed Subscriber einer Site ───────────────
+// ─── Recompute für alle aktiven Subscriber einer Site ───────────────
 
 export async function recomputeAllEngagement(siteId: string): Promise<{ updated: number }> {
   const db = getDb()
 
   const subs = await db.select({ email: newsletterSubscribers.email })
     .from(newsletterSubscribers)
-    .where(and(eq(newsletterSubscribers.siteId, siteId), eq(newsletterSubscribers.status, 'confirmed')))
+    .where(and(eq(newsletterSubscribers.siteId, siteId), eq(newsletterSubscribers.status, 'active')))
 
   let updated = 0
   for (const s of subs) {

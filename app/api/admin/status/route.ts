@@ -20,7 +20,7 @@ export async function GET(request: Request) {
         .from(newsletterSubscribers)
         .where(and(
           eq(newsletterSubscribers.siteId, SITE_ID),
-          eq(newsletterSubscribers.status, 'confirmed'),
+          eq(newsletterSubscribers.status, 'active'),
         )),
       db.select({
         id: newsletterSends.id,

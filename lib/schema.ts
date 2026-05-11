@@ -46,11 +46,18 @@ export const newsletterSubscribers = sqliteTable('newsletter_subscribers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   siteId: text('site_id').notNull().default('kokomo'),
   email: text('email').notNull(),
-  status: text('status').notNull().default('pending').$type<'pending' | 'confirmed' | 'unsubscribed'>(),
+  // Status-Semantik (refactored fuer das Subscription-Center-Modell):
+  //   pending → Double-Opt-In ausstehend
+  //   active  → bestaetigt, versandberechtigt (was real rausgeht, entscheidet
+  //             die Listen-Mitgliedschaft)
+  //   blocked → Hard-Bounce / Complaint / "komplett abmelden" → nie versenden,
+  //             auch wenn Mitgliedschaften noch existieren. Reaktivierung
+  //             durch Admin → wieder alles bedient (Mitgliedschaften bleiben).
+  status: text('status').notNull().default('pending').$type<'pending' | 'active' | 'blocked'>(),
   token: text('token').notNull().unique(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   confirmedAt: text('confirmed_at'),
-  unsubscribedAt: text('unsubscribed_at'),
+  blockedAt: text('blocked_at'),
   // GDPR Art. 7.1 "Nachweis der Einwilligung": IP + UA at signup and again at
   // confirmation. Lets the operator prove the subscriber actively opted in if
   // a complaint arises. Nullable for legacy rows and bulk-import paths.
@@ -437,19 +444,30 @@ export const subscriberLists = sqliteTable('subscriber_lists', {
   siteId: text('site_id').notNull(),
   name: text('name').notNull(),
   description: text('description'),
+  // Genau eine Liste pro Site darf isPrimary=1 sein (= "Hauptnewsletter").
+  // Eindeutigkeit wird applikatorisch geprueft (LibSQL/SQLite-Partial-Unique
+  // ist verfuegbar, aber drizzle-kit unterstuetzt es bei Turso noch nicht
+  // sauber, daher Schema-seitig nur Default + Index).
+  isPrimary: integer('is_primary').notNull().default(0),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_sl_site').on(table.siteId),
+  index('idx_sl_primary').on(table.siteId, table.isPrimary),
 ])
 
 export const subscriberListMembers = sqliteTable('subscriber_list_members', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   listId: integer('list_id').notNull().references(() => subscriberLists.id, { onDelete: 'cascade' }),
-  email: text('email').notNull(),
+  // FK auf die Stammliste — die E-Mail-Adresse wird dort gepflegt; Listen
+  // joinen, kopieren nichts. Email-Aenderung am Subscriber wirkt damit
+  // automatisch in allen Listen.
+  subscriberId: integer('subscriber_id').notNull().references(() => newsletterSubscribers.id, { onDelete: 'cascade' }),
+  // Token bleibt pro Mitgliedschaft (RFC-8058-Unsubscribe pro Liste).
   token: text('token').notNull(),
   addedAt: text('added_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  uniqueIndex('idx_slm_list_email').on(table.listId, table.email),
+  uniqueIndex('idx_slm_list_subscriber').on(table.listId, table.subscriberId),
   uniqueIndex('idx_slm_token').on(table.token),
   index('idx_slm_list').on(table.listId),
+  index('idx_slm_subscriber').on(table.subscriberId),
 ])

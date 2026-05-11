@@ -265,11 +265,11 @@ export async function updateRecipientEvent(
       await bumpVariant('bouncedCount')
       if (metadata?.bounce_type === 'hard') {
         await db.update(newsletterSubscribers)
-          .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
+          .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
           .where(and(
             eq(newsletterSubscribers.siteId, recipient.siteId),
             eq(newsletterSubscribers.email, recipient.email),
-            eq(newsletterSubscribers.status, 'confirmed'),
+            eq(newsletterSubscribers.status, 'active'),
           ))
       } else {
         // Soft/unknown bounce: suspend after threshold in rolling window.
@@ -292,11 +292,11 @@ export async function updateRecipientEvent(
         const softCount = (counted.rows?.[0]?.count as number) ?? 0
         if (softCount >= SOFT_BOUNCE_THRESHOLD) {
           await db.update(newsletterSubscribers)
-            .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
+            .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
             .where(and(
               eq(newsletterSubscribers.siteId, recipient.siteId),
               eq(newsletterSubscribers.email, recipient.email),
-              eq(newsletterSubscribers.status, 'confirmed'),
+              eq(newsletterSubscribers.status, 'active'),
             ))
         }
       }
@@ -311,11 +311,11 @@ export async function updateRecipientEvent(
         .where(eq(newsletterSends.id, recipient.sendId))
       await bumpVariant('complainedCount')
       await db.update(newsletterSubscribers)
-        .set({ status: 'unsubscribed', unsubscribedAt: sql`datetime('now')` })
+        .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
         .where(and(
           eq(newsletterSubscribers.siteId, recipient.siteId),
           eq(newsletterSubscribers.email, recipient.email),
-          eq(newsletterSubscribers.status, 'confirmed'),
+          eq(newsletterSubscribers.status, 'active'),
         ))
       break
     }
@@ -393,7 +393,7 @@ export async function getFailedRecipientsForSend(siteId: string, sendId: number)
   const rows = await db.run(sql`
     SELECT s.email, s.token
     FROM newsletter_recipients nr
-    JOIN newsletter_subscribers s ON s.email = nr.email AND s.status = 'confirmed' AND s.site_id = ${siteId}
+    JOIN newsletter_subscribers s ON s.email = nr.email AND s.status = 'active' AND s.site_id = ${siteId}
     WHERE nr.send_id = ${sendId} AND nr.resend_email_id IS NULL
   `)
   return (rows.rows ?? []).map((r) => ({ email: r.email as string, token: r.token as string }))

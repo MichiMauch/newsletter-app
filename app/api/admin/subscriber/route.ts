@@ -16,10 +16,10 @@ interface SubscriberProfile {
   subscriber: {
     id: number
     email: string
-    status: 'pending' | 'confirmed' | 'unsubscribed'
+    status: 'pending' | 'active' | 'blocked'
     createdAt: string
     confirmedAt: string | null
-    unsubscribedAt: string | null
+    blockedAt: string | null
     subscribedIp: string | null
     subscribedUserAgent: string | null
     confirmedIp: string | null
@@ -90,9 +90,13 @@ export async function GET(request: Request) {
           subscriberListMembers,
           eq(subscriberListMembers.listId, subscriberLists.id),
         )
+        .innerJoin(
+          newsletterSubscribers,
+          eq(newsletterSubscribers.id, subscriberListMembers.subscriberId),
+        )
         .where(and(
           eq(subscriberLists.siteId, SITE_ID),
-          eq(subscriberListMembers.email, email),
+          eq(newsletterSubscribers.email, email),
         ))
         .orderBy(asc(subscriberLists.name)),
       db.run(sql`
@@ -115,7 +119,7 @@ export async function GET(request: Request) {
         status: sub.status,
         createdAt: sub.createdAt,
         confirmedAt: sub.confirmedAt ?? null,
-        unsubscribedAt: sub.unsubscribedAt ?? null,
+        blockedAt: sub.blockedAt ?? null,
         subscribedIp: sub.subscribedIp ?? null,
         subscribedUserAgent: sub.subscribedUserAgent ?? null,
         confirmedIp: sub.confirmedIp ?? null,

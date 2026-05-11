@@ -47,16 +47,27 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: 'Zu viele Anfragen. Bitte versuche es später erneut.' }), { status: 429, headers })
     }
 
-    const { email, siteId = 'kokomo' } = await request.json()
+    const body = await request.json() as { email?: unknown; siteId?: unknown; listIds?: unknown }
+    const email = body.email
+    const siteId = typeof body.siteId === 'string' ? body.siteId : 'kokomo'
 
     if (!ALLOWED_SITE_IDS.includes(siteId)) {
       return new Response(JSON.stringify({ error: 'Ungültige Site-ID.' }), { status: 400, headers })
     }
 
-    if (!isValidEmail(email)) {
+    if (typeof email !== 'string' || !isValidEmail(email)) {
       return new Response(JSON.stringify({ error: 'Ungültige E-Mail-Adresse.' }), { status: 400, headers })
     }
     const normalized = email.trim().toLowerCase()
+
+    // Optionale listIds — wenn weggelassen, traegt createSubscriber den User
+    // automatisch in die Hauptliste der Site ein. Validierung der listIds
+    // selbst (gehoeren sie zur Site?) macht addSubscriberToLists.
+    let listIds: number[] | undefined
+    if (Array.isArray(body.listIds)) {
+      const ids = body.listIds.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+      if (ids.length > 0) listIds = ids
+    }
 
     // Second-layer rate-limit keyed on the target email. Defends against
     // email-bombing where the attacker rotates source IPs/XFF to flood a
@@ -71,7 +82,7 @@ export async function POST(request: Request) {
     }
 
     const userAgent = request.headers.get('user-agent') ?? null
-    const result = await createSubscriber(siteId, normalized, { ip, userAgent })
+    const result = await createSubscriber(siteId, normalized, { ip, userAgent }, { listIds })
     const site = await getSiteConfig(siteId)
 
     if (result.alreadyConfirmed) {

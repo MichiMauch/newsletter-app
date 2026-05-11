@@ -20,7 +20,7 @@ interface BouncedAddressRow {
   last_source: 'newsletter' | 'automation'
   newsletter_bounces: number
   automation_bounces: number
-  subscriber_status: 'pending' | 'confirmed' | 'unsubscribed' | null
+  subscriber_status: 'pending' | 'active' | 'blocked' | null
 }
 
 interface BounceOverview {
@@ -229,10 +229,10 @@ export default function BouncesTab() {
                         {a.last_source === 'automation' ? 'Automation' : 'Newsletter'}
                       </td>
                       <td className="px-5 py-3 text-xs text-[var(--text-secondary)]">
-                        {a.subscriber_status === 'confirmed'
+                        {a.subscriber_status === 'active'
                           ? <span className="text-emerald-600 dark:text-emerald-400">aktiv</span>
-                          : a.subscriber_status === 'unsubscribed'
-                            ? 'abgemeldet'
+                          : a.subscriber_status === 'blocked'
+                            ? 'blockiert'
                             : a.subscriber_status === 'pending'
                               ? 'ausstehend'
                               : 'nicht im Stamm'}

@@ -1,10 +1,10 @@
 export interface Subscriber {
   id: number
   email: string
-  status: 'pending' | 'confirmed' | 'unsubscribed'
+  status: 'pending' | 'active' | 'blocked'
   createdAt: string
   confirmedAt: string | null
-  unsubscribedAt: string | null
+  blockedAt: string | null
   engagement_score?: number | null
   engagement_tier?: 'active' | 'moderate' | 'dormant' | 'cold' | null
   tags?: string[]
@@ -138,16 +138,16 @@ export function formatDateShort(dateStr: string): string {
 }
 
 export const statusBadge: Record<string, { label: string; cls: string }> = {
-  confirmed: {
-    label: 'Bestätigt',
+  active: {
+    label: 'Aktiv',
     cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
   },
   pending: {
     label: 'Ausstehend',
     cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
   },
-  unsubscribed: {
-    label: 'Abgemeldet',
+  blocked: {
+    label: 'Blockiert',
     cls: 'bg-[var(--bg-secondary)] text-[var(--text-muted)]',
   },
 }

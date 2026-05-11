@@ -177,6 +177,9 @@ export async function sendMultiBlockNewsletterEmail(
   data: {
     email: string
     unsubscribeToken: string
+    // Master-Token fuer den "Einstellungen"-Magic-Link im Footer.
+    // Optional — wenn weg, blendet der Renderer den Link aus.
+    preferencesToken?: string
     subject: string
     preheader?: string | null
     blocks: NewsletterBlock[]
@@ -187,6 +190,9 @@ export async function sendMultiBlockNewsletterEmail(
   },
 ): Promise<{ resendEmailId: string | null }> {
   const unsubscribeUrl = unsubscribePageUrl(site, data.unsubscribeToken)
+  const preferencesUrl = data.preferencesToken
+    ? `${siteUrlOf(site)}/preferences/${encodeURIComponent(data.preferencesToken)}`
+    : undefined
   const personalize = (s: string) => substitutePersonalization(s, { firstName: data.firstName ?? null })
 
   try {
@@ -197,6 +203,7 @@ export async function sendMultiBlockNewsletterEmail(
       blocks: data.blocks,
       postsMap: data.postsMap,
       unsubscribeUrl,
+      preferencesUrl,
     }
     const [html, text] = await Promise.all([
       renderMultiBlockHtml(props),

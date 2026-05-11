@@ -26,7 +26,7 @@ export default function DashboardTab({
   EngagementTrendChart,
   SubscriberGrowthChart,
 }: DashboardTabProps) {
-  const confirmedCount = subscribers.filter((s) => s.status === 'confirmed').length
+  const confirmedCount = subscribers.filter((s) => s.status === 'active').length
 
   return (
     <div className="space-y-6">

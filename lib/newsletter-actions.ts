@@ -5,7 +5,8 @@
  */
 
 import {
-  getConfirmedSubscribers,
+  getActiveSubscribers,
+  getPrimaryListId,
   getSubscribersByTagSignal,
   recordNewsletterSend,
   recordNewsletterRecipientsBatch,
@@ -105,6 +106,10 @@ function parseAudienceFilter(raw: unknown): { tags: string[]; minSignal: number 
 interface StreamRecipient {
   email: string
   token: string
+  // Optional: Master-Token fuer den Subscription-Center-Link im Footer. Wenn
+  // weggelassen (z.B. Test-Sends, Retries), wird der Footer ohne Magic-Link
+  // gerendert und der User landet ueber den Unsubscribe-Folgepfad im Center.
+  preferencesToken?: string
   subject: string
   variantLabel?: string
 }
@@ -130,6 +135,7 @@ function streamSend(
             const result = await sendMultiBlockNewsletterEmail(site, {
               email: sub.email,
               unsubscribeToken: sub.token,
+              preferencesToken: sub.preferencesToken,
               subject: sub.subject,
               preheader,
               blocks,
@@ -350,7 +356,10 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
   const parsedFilter = parseAudienceFilter(audienceFilter)
   const parsedListId = typeof listId === 'number' && Number.isFinite(listId) ? listId : null
 
-  let subscribers: { email: string; token: string }[]
+  // subscriberToken bleibt optional, weil Tag-Filter den Master-Token bereits
+  // im "token"-Feld liefert (kein zweiter Token noetig). Listen-Pfade liefern
+  // den Master-Token zusaetzlich fuer den Subscription-Center-Footer-Link.
+  let subscribers: { email: string; token: string; subscriberToken?: string }[]
 
   if (parsedListId !== null) {
     const list = await getList(parsedListId)
@@ -362,14 +371,26 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
       return jsonError('Liste hat keine Mitglieder.', 400)
     }
   } else if (parsedFilter) {
+    // Tag-Filter ist eine Cross-Listen-Selektion auf der Stammliste — bewusst
+    // nicht ueber Listen-Mitgliedschaft, weil die Filter Engagement-getrieben sind.
     subscribers = await getSubscribersByTagSignal(SITE_ID, parsedFilter.tags, parsedFilter.minSignal)
     if (subscribers.length === 0) {
       return jsonError('Keine Abonnenten matchen das gewählte Segment.', 400)
     }
   } else {
-    subscribers = await getConfirmedSubscribers(SITE_ID)
-    if (subscribers.length === 0) {
-      return jsonError('Keine bestätigten Abonnenten vorhanden.', 400)
+    // Default: Hauptliste der Site. Falls keine konfiguriert ist, fallback
+    // auf alle aktiven Subscriber (Bootstrap-Phase oder Site ohne Hauptliste).
+    const primaryId = await getPrimaryListId(SITE_ID)
+    if (primaryId !== null) {
+      subscribers = await getListEmailsForSend(primaryId)
+      if (subscribers.length === 0) {
+        return jsonError('Hauptliste hat keine Mitglieder.', 400)
+      }
+    } else {
+      subscribers = await getActiveSubscribers(SITE_ID)
+      if (subscribers.length === 0) {
+        return jsonError('Keine aktiven Abonnenten vorhanden.', 400)
+      }
     }
   }
 
@@ -508,14 +529,23 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
     })
   }
 
+  // Master-Token fuer den Subscription-Center-Footer-Link mitgeben, wenn der
+  // Recipient-Loader ihn gesetzt hat (Listen-Pfade). Beim Tag-Filter-Pfad ist
+  // s.token bereits der Master-Token; wir uebergeben ihn auch als preferences.
   const streamRecipients: StreamRecipient[] = variants
     ? assignVariants(subscribers, variants).map((a) => ({
         email: a.email,
         token: a.token,
+        preferencesToken: a.subscriberToken ?? a.token,
         subject: a.variant.subject,
         variantLabel: a.variant.label,
       }))
-    : subscribers.map((s) => ({ email: s.email, token: s.token, subject: subject! }))
+    : subscribers.map((s) => ({
+        email: s.email,
+        token: s.token,
+        preferencesToken: s.subscriberToken ?? s.token,
+        subject: subject!,
+      }))
 
   return streamSend(streamRecipients, site, preheader, blocks, postsMap, sendId)
 }

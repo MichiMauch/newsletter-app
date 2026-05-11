@@ -88,11 +88,11 @@ async function main() {
 
   // Subscribers — deterministic tokens so tests can hit the unsubscribe link
   const subscribers = [
-    { email: 'alice@e2e.test', token: 't-alice', status: 'confirmed' as const },
-    { email: 'bob@e2e.test', token: 't-bob', status: 'confirmed' as const },
-    { email: 'carol@e2e.test', token: 't-carol', status: 'confirmed' as const },
-    { email: 'dave@e2e.test', token: 't-dave', status: 'confirmed' as const },
-    { email: 'eve@e2e.test', token: 't-eve', status: 'confirmed' as const },
+    { email: 'alice@e2e.test', token: 't-alice', status: 'active' as const },
+    { email: 'bob@e2e.test', token: 't-bob', status: 'active' as const },
+    { email: 'carol@e2e.test', token: 't-carol', status: 'active' as const },
+    { email: 'dave@e2e.test', token: 't-dave', status: 'active' as const },
+    { email: 'eve@e2e.test', token: 't-eve', status: 'active' as const },
   ]
   await db.insert(schema.newsletterSubscribers).values(
     subscribers.map((s) => ({

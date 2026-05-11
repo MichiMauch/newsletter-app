@@ -336,7 +336,7 @@ export async function runInactivityTriggers(): Promise<InactivityScanResult[]> {
       LEFT JOIN newsletter_sends sn ON sn.site_id = s.site_id
       LEFT JOIN newsletter_recipients nr ON nr.send_id = sn.id AND nr.email = s.email
       WHERE s.site_id = ${t.siteId}
-        AND s.status = 'confirmed'
+        AND s.status = 'active'
         AND NOT EXISTS (
           SELECT 1 FROM email_automation_enrollments e
           WHERE e.automation_id = ${t.automationId} AND e.subscriber_email = s.email
@@ -386,7 +386,7 @@ export async function runEngagementTriggers(): Promise<EngagementScanResult[]> {
 
   const results: EngagementScanResult[] = []
   for (const t of targets) {
-    // Subscriber unter threshold, nur 'confirmed', noch nicht enrolled
+    // Subscriber unter threshold, nur 'active', noch nicht enrolled
     const candidates = await db.run(sql`
       SELECT se.subscriber_email AS email
       FROM subscriber_engagement se
@@ -394,7 +394,7 @@ export async function runEngagementTriggers(): Promise<EngagementScanResult[]> {
       WHERE se.site_id = ${t.siteId}
         AND se.score < ${t.threshold}
         AND se.sends_90d > 0
-        AND s.status = 'confirmed'
+        AND s.status = 'active'
         AND NOT EXISTS (
           SELECT 1 FROM email_automation_enrollments e
           WHERE e.automation_id = ${t.automationId} AND e.subscriber_email = se.subscriber_email
