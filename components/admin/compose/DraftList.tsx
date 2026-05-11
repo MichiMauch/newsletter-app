@@ -76,12 +76,11 @@ export default function DraftList() {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'reopen failed')
       }
-      toast.success('Draft wieder geöffnet.')
-      await load()
+      router.push(`/admin/newsletter/compose/${id}`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Fehler beim Öffnen')
     }
-  }, [load, toast])
+  }, [router, toast])
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
