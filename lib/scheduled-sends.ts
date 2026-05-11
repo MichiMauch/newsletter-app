@@ -18,6 +18,7 @@ import { sendMultiBlockNewsletterEmail, cancelResendEmail } from './notify'
 import { getContentItemsBySlugs } from './content'
 import { getSiteConfig } from './site-config'
 import { getFirstNamesByEmails, getSendForRetry, getVariantsForSend, markScheduledSendAsSent, updateRecipientResendId } from './newsletter'
+import { getDraftBySendId, markDraftSent } from './newsletter-drafts'
 import type { NewsletterBlock } from './newsletter-blocks'
 
 const PUSH_HORIZON_HOURS = 1 // Slots innerhalb der nächsten Stunde direkt schieben
@@ -303,16 +304,39 @@ export async function pushDueSendsToResend(): Promise<{
       .limit(1)
     if (remaining.length === 0) {
       await markScheduledSendAsSent(sendId)
+      await markLinkedDraftSent(sendId)
     }
   }
 
   return { pushed, failed, skipped }
 }
 
+async function markLinkedDraftSent(sendId: number): Promise<void> {
+  try {
+    const draft = await getDraftBySendId(sendId)
+    if (draft && draft.status === 'scheduled') {
+      await markDraftSent(draft.id, sendId, draft.siteId)
+    }
+  } catch (err) {
+    Sentry.captureException(err, { tags: { area: 'scheduled-sends', stage: 'draft-mark-sent' }, extra: { sendId } })
+  }
+}
+
 // ─── Watchdog: parents auf 'sent' setzen, sobald Plan-Zeit vorbei ist ──
 
 export async function flushDoneScheduledSends(): Promise<{ flushed: number }> {
   const db = getDb()
+  const dueRows = await db.all<{ id: number }>(sql`
+    SELECT id FROM newsletter_sends
+    WHERE status = 'scheduled'
+      AND scheduled_for IS NOT NULL
+      AND datetime(scheduled_for) <= datetime('now')
+      AND NOT EXISTS (
+        SELECT 1 FROM scheduled_sends
+        WHERE scheduled_sends.send_id = newsletter_sends.id
+          AND scheduled_sends.status = 'pending'
+      )
+  `)
   const result = await db.run(sql`
     UPDATE newsletter_sends
     SET status = 'sent'
@@ -325,6 +349,9 @@ export async function flushDoneScheduledSends(): Promise<{ flushed: number }> {
           AND scheduled_sends.status = 'pending'
       )
   `)
+  for (const row of dueRows) {
+    await markLinkedDraftSent(row.id)
+  }
   return { flushed: Number(result.rowsAffected ?? 0) }
 }
 

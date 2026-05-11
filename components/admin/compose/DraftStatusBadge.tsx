@@ -11,6 +11,10 @@ const STATUS_LABEL: Record<DraftStatus, { label: string; cls: string }> = {
     label: 'Bereit zum Senden',
     cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
   },
+  scheduled: {
+    label: 'Versand geplant',
+    cls: 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300',
+  },
   sent: {
     label: 'Gesendet',
     cls: 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300',

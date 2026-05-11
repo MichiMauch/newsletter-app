@@ -1,7 +1,9 @@
 import * as Sentry from '@sentry/nextjs'
 import { isAuthenticated } from '@/lib/admin-auth'
 import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
-import { reopenDraft, DraftNotFoundError, DraftStatusError } from '@/lib/newsletter-drafts'
+import { getDraft, reopenDraft, DraftNotFoundError, DraftStatusError } from '@/lib/newsletter-drafts'
+import { cancelNewsletterSend } from '@/lib/newsletter-sends'
+import { cancelScheduledSend } from '@/lib/scheduled-sends'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -11,6 +13,13 @@ export async function POST(request: Request, { params }: Ctx) {
   }
   const { id } = await params
   try {
+    // If the draft has been scheduled, cancel the underlying send/queue first
+    // so the cron loop does not push the mail after the user reopens it.
+    const existing = await getDraft(id, SITE_ID)
+    if (existing && existing.status === 'scheduled' && existing.sentSendId) {
+      await cancelScheduledSend(existing.sentSendId)
+      await cancelNewsletterSend(existing.sentSendId)
+    }
     const draft = await reopenDraft(id, SITE_ID)
     return Response.json({ draft })
   } catch (err: unknown) {

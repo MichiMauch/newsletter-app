@@ -197,7 +197,7 @@ export default function DraftEditor({ draftId }: Props) {
     )
   }
 
-  const readOnly = draft.status === 'sent' || draft.status === 'archived'
+  const readOnly = draft.status === 'sent' || draft.status === 'archived' || draft.status === 'scheduled'
   const isReadyToSend = draft.status === 'ready_to_send'
 
   const onInsertBlock = (type: UserAuthoredBlockType, at: number) => {

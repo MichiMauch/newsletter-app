@@ -8,6 +8,8 @@ import {
   DraftNotFoundError,
   DraftStatusError,
 } from '@/lib/newsletter-drafts'
+import { cancelNewsletterSend } from '@/lib/newsletter-sends'
+import { cancelScheduledSend } from '@/lib/scheduled-sends'
 import type { NewsletterBlock } from '@/lib/newsletter-blocks'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -70,6 +72,11 @@ export async function DELETE(request: Request, { params }: Ctx) {
   }
   const { id } = await params
   try {
+    const existing = await getDraft(id, SITE_ID)
+    if (existing && existing.status === 'scheduled' && existing.sentSendId) {
+      await cancelScheduledSend(existing.sentSendId)
+      await cancelNewsletterSend(existing.sentSendId)
+    }
     await deleteDraft(id, SITE_ID)
     return Response.json({ ok: true })
   } catch (err: unknown) {

@@ -25,11 +25,12 @@ export default function DraftList() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [pendingCancelId, setPendingCancelId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/newsletter/drafts?status=draft,ready_to_send')
+      const res = await fetch('/api/admin/newsletter/drafts?status=draft,ready_to_send,scheduled')
       if (!res.ok) throw new Error('load failed')
       const data = await res.json()
       setDrafts(data.drafts ?? [])
@@ -82,6 +83,13 @@ export default function DraftList() {
     }
   }, [router, toast])
 
+  const confirmCancelSchedule = useCallback(async () => {
+    if (!pendingCancelId) return
+    const id = pendingCancelId
+    setPendingCancelId(null)
+    await handleReopen(id)
+  }, [pendingCancelId, handleReopen])
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       <div className="mb-6 flex items-center justify-between">
@@ -121,6 +129,7 @@ export default function DraftList() {
         <ul className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background-card)]">
           {drafts.map((draft) => {
             const isReady = draft.status === 'ready_to_send'
+            const isScheduled = draft.status === 'scheduled'
             const title = draft.title?.trim() || draft.subject?.trim() || '(Ohne Titel)'
             return (
               <li key={draft.id} className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-4 py-3 last:border-b-0">
@@ -147,7 +156,15 @@ export default function DraftList() {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {isReady ? (
+                  {isScheduled ? (
+                    <button
+                      type="button"
+                      onClick={() => setPendingCancelId(draft.id)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--background-elevated)]"
+                    >
+                      Versand abbrechen & bearbeiten
+                    </button>
+                  ) : isReady ? (
                     <button
                       type="button"
                       onClick={() => handleReopen(draft.id)}
@@ -176,6 +193,28 @@ export default function DraftList() {
             )
           })}
         </ul>
+      )}
+
+      {pendingCancelId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-6 shadow-2xl">
+            <h3 className="mb-3 text-lg font-semibold text-[var(--text)]">Geplanten Versand abbrechen?</h3>
+            <p className="mb-6 text-sm text-[var(--text-secondary)]">
+              Der bereits geplante Versand wird gestoppt und der Entwurf zurück in den Bearbeitungs-Modus gesetzt.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setPendingCancelId(null)} className="glass-button">
+                Doch nicht
+              </button>
+              <button
+                onClick={confirmCancelSchedule}
+                className="rounded-xl bg-primary-500 px-5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+              >
+                Abbrechen & bearbeiten
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {pendingDeleteId && (

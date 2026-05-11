@@ -145,7 +145,7 @@ export const newsletterDrafts = sqliteTable('newsletter_drafts', {
   abTestEnabled: integer('ab_test_enabled').notNull().default(0),
   subjectVariantB: text('subject_variant_b'),
   blocksJson: text('blocks_json').notNull().default('[]'),
-  status: text('status').notNull().default('draft').$type<'draft' | 'ready_to_send' | 'sent' | 'archived'>(),
+  status: text('status').notNull().default('draft').$type<'draft' | 'ready_to_send' | 'scheduled' | 'sent' | 'archived'>(),
   lastTestedAt: text('last_tested_at'),
   lastTestedTo: text('last_tested_to'),
   finalizedAt: text('finalized_at'),

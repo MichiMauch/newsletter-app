@@ -4,7 +4,7 @@ import { DEFAULT_SITE_ID as SITE_ID } from '@/lib/site-config'
 import { createDraft, listDrafts, type DraftStatus } from '@/lib/newsletter-drafts'
 import type { NewsletterBlock } from '@/lib/newsletter-blocks'
 
-const VALID_STATUSES: DraftStatus[] = ['draft', 'ready_to_send', 'sent', 'archived']
+const VALID_STATUSES: DraftStatus[] = ['draft', 'ready_to_send', 'scheduled', 'sent', 'archived']
 
 function parseStatusParam(raw: string | null): DraftStatus | DraftStatus[] | undefined {
   if (!raw) return undefined

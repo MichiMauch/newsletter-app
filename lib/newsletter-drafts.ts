@@ -3,7 +3,7 @@ import { getDb } from './db'
 import { newsletterDrafts } from './schema'
 import type { NewsletterBlock } from './newsletter-blocks'
 
-export type DraftStatus = 'draft' | 'ready_to_send' | 'sent' | 'archived'
+export type DraftStatus = 'draft' | 'ready_to_send' | 'scheduled' | 'sent' | 'archived'
 
 export type NewsletterDraftRow = typeof newsletterDrafts.$inferSelect
 
@@ -148,7 +148,7 @@ export async function updateDraft(
 ): Promise<NewsletterDraft> {
   const existing = await getDraft(id, siteId)
   if (!existing) throw new DraftNotFoundError(id)
-  if (existing.status === 'sent' || existing.status === 'archived') {
+  if (existing.status === 'sent' || existing.status === 'archived' || existing.status === 'scheduled') {
     throw new DraftStatusError(`Cannot edit draft in status '${existing.status}'`)
   }
 
@@ -201,7 +201,7 @@ export async function finalizeDraft(id: string, siteId?: string): Promise<Newsle
 export async function reopenDraft(id: string, siteId?: string): Promise<NewsletterDraft> {
   const existing = await getDraft(id, siteId)
   if (!existing) throw new DraftNotFoundError(id)
-  if (existing.status !== 'ready_to_send') {
+  if (existing.status !== 'ready_to_send' && existing.status !== 'scheduled') {
     throw new DraftStatusError(`Cannot reopen draft in status '${existing.status}'`)
   }
   const [row] = await getDb()
@@ -209,6 +209,7 @@ export async function reopenDraft(id: string, siteId?: string): Promise<Newslett
     .set({
       status: 'draft',
       finalizedAt: null,
+      sentSendId: null,
       updatedAt: sql`(datetime('now'))`,
     })
     .where(eq(newsletterDrafts.id, id))
@@ -216,10 +217,39 @@ export async function reopenDraft(id: string, siteId?: string): Promise<Newslett
   return rowToDraft(row)
 }
 
+export async function markDraftScheduled(id: string, sendId: number, siteId?: string): Promise<NewsletterDraft> {
+  const existing = await getDraft(id, siteId)
+  if (!existing) throw new DraftNotFoundError(id)
+  if (existing.status !== 'ready_to_send') {
+    throw new DraftStatusError(`Cannot schedule draft from status '${existing.status}'`)
+  }
+  const [row] = await getDb()
+    .update(newsletterDrafts)
+    .set({
+      status: 'scheduled',
+      sentSendId: sendId,
+      updatedAt: sql`(datetime('now'))`,
+    })
+    .where(eq(newsletterDrafts.id, id))
+    .returning()
+  return rowToDraft(row)
+}
+
+export async function getDraftBySendId(sendId: number, siteId?: string): Promise<NewsletterDraft | null> {
+  const conditions = [eq(newsletterDrafts.sentSendId, sendId)]
+  if (siteId) conditions.push(eq(newsletterDrafts.siteId, siteId))
+  const [row] = await getDb()
+    .select()
+    .from(newsletterDrafts)
+    .where(and(...conditions))
+    .limit(1)
+  return row ? rowToDraft(row) : null
+}
+
 export async function markDraftTested(id: string, testedTo: string, siteId?: string): Promise<NewsletterDraft> {
   const existing = await getDraft(id, siteId)
   if (!existing) throw new DraftNotFoundError(id)
-  if (existing.status === 'sent' || existing.status === 'archived') {
+  if (existing.status === 'sent' || existing.status === 'archived' || existing.status === 'scheduled') {
     throw new DraftStatusError(`Cannot record test for draft in status '${existing.status}'`)
   }
   const [row] = await getDb()
@@ -237,7 +267,7 @@ export async function markDraftTested(id: string, testedTo: string, siteId?: str
 export async function markDraftSent(id: string, sendId: number, siteId?: string): Promise<NewsletterDraft> {
   const existing = await getDraft(id, siteId)
   if (!existing) throw new DraftNotFoundError(id)
-  if (existing.status !== 'ready_to_send') {
+  if (existing.status !== 'ready_to_send' && existing.status !== 'scheduled') {
     throw new DraftStatusError(`Cannot mark draft as sent from status '${existing.status}'`)
   }
   const [row] = await getDb()

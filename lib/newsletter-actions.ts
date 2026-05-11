@@ -34,7 +34,7 @@ import { getList, getListEmailsForSend } from '@/lib/lists'
 import { bootstrapProfilesFromClicks } from '@/lib/send-time-optimization'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
 import { isValidEmail } from '@/lib/validators'
-import { getDraft, markDraftSent } from '@/lib/newsletter-drafts'
+import { getDraft, getDraftBySendId, markDraftSent, markDraftScheduled, reopenDraft } from '@/lib/newsletter-drafts'
 
 const SEND_DELAY_MS = 800
 const MAX_RETRIES = 2
@@ -295,6 +295,10 @@ export async function actionCancelScheduled(body: NewsletterActionBody): Promise
   }
   const result = await cancelScheduledSend(id)
   await cancelNewsletterSend(id)
+  const linkedDraft = await getDraftBySendId(id, SITE_ID)
+  if (linkedDraft && linkedDraft.status === 'scheduled') {
+    await reopenDraft(linkedDraft.id, SITE_ID)
+  }
   return jsonOk({
     ok: true,
     cancelled_pending: result.cancelled_pending,
@@ -399,7 +403,7 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
       scheduled_for: scheduledIso,
       status: 'scheduled',
     })
-    if (draftId) await markDraftSent(draftId, sendId, SITE_ID)
+    if (draftId) await markDraftScheduled(draftId, sendId, SITE_ID)
 
     let enqueued: { enqueued: number; earliest?: string; latest?: string }
     if (variants) {
