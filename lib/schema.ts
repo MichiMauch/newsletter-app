@@ -134,6 +134,30 @@ export const newsletterSendVariants = sqliteTable('newsletter_send_variants', {
   index('idx_nsv_send').on(table.sendId),
 ])
 
+// ─── Newsletter Drafts (Compose-Workflow, persistiert in DB) ───────────
+
+export const newsletterDrafts = sqliteTable('newsletter_drafts', {
+  id: text('id').primaryKey(),
+  siteId: text('site_id').notNull().default('kokomo'),
+  title: text('title').notNull().default(''),
+  subject: text('subject').notNull().default(''),
+  preheader: text('preheader'),
+  abTestEnabled: integer('ab_test_enabled').notNull().default(0),
+  subjectVariantB: text('subject_variant_b'),
+  blocksJson: text('blocks_json').notNull().default('[]'),
+  status: text('status').notNull().default('draft').$type<'draft' | 'ready_to_send' | 'sent' | 'archived'>(),
+  lastTestedAt: text('last_tested_at'),
+  lastTestedTo: text('last_tested_to'),
+  finalizedAt: text('finalized_at'),
+  sentAt: text('sent_at'),
+  sentSendId: integer('sent_send_id').references(() => newsletterSends.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_nd_site_status').on(table.siteId, table.status, table.updatedAt),
+  index('idx_nd_site').on(table.siteId),
+])
+
 // ─── Newsletter Link Clicks ─────────────────────────────────────────────
 
 export const newsletterLinkClicks = sqliteTable('newsletter_link_clicks', {
