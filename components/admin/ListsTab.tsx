@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { inputCls } from './types'
+import { inputCls, formatDateShort, statusBadge } from './types'
+import { EngagementBadge } from '../ui/EngagementIndicator'
 import { useToast } from '../ui/ToastProvider'
 
 export interface SubscriberListSummary {
@@ -23,6 +24,11 @@ export interface SubscriberListMember {
   status: 'pending' | 'active' | 'blocked'
   token: string
   added_at: string
+  subscriber_created_at: string
+  confirmed_at: string | null
+  engagement_score: number | null
+  engagement_tier: 'active' | 'moderate' | 'dormant' | 'cold' | null
+  tags: string[]
 }
 
 export default function ListsTab() {
@@ -419,34 +425,71 @@ export default function ListsTab() {
                 Noch keine Mitglieder. Füge oben Adressen aus der Stammliste hinzu.
               </div>
             ) : (
-              <div className="divide-y divide-[var(--border)]">
-                {members.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-sm text-[var(--text)]">
-                        {m.email}
-                        {m.status !== 'active' && (
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                            m.status === 'blocked'
-                              ? 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
-                              : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
-                          }`}>
-                            {m.status === 'blocked' ? 'blockiert' : 'ausstehend'}
-                          </span>
-                        )}
-                      </div>
-                      {m.first_name && (
-                        <div className="text-xs text-[var(--text-secondary)]">{m.first_name}</div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleRemoveMember(m)}
-                      className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400"
-                    >
-                      Entfernen
-                    </button>
-                  </div>
-                ))}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-[var(--bg-secondary)]/50">
+                    <tr className="text-left">
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">E-Mail</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Status</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Engagement</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Tags</th>
+                      <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">In Liste seit</th>
+                      <th className="px-5 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.map((m, i) => {
+                      const sBadge = statusBadge[m.status] || statusBadge.pending
+                      return (
+                        <tr
+                          key={m.id}
+                          className={`border-b border-[var(--border)] last:border-0 ${
+                            i % 2 === 0 ? '' : 'bg-[var(--bg-secondary)]/50'
+                          }`}
+                        >
+                          <td className="px-5 py-3">
+                            <div className="font-medium text-[var(--text)]">{m.email}</div>
+                            {m.first_name && (
+                              <div className="text-xs text-[var(--text-secondary)]">{m.first_name}</div>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${sBadge.cls}`}>
+                              {sBadge.label}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3">
+                            <EngagementBadge tier={m.engagement_tier} score={m.engagement_score} />
+                          </td>
+                          <td className="px-5 py-3">
+                            {m.tags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {m.tags.map((t) => (
+                                  <span key={t} className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-[var(--text-muted)]">—</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 whitespace-nowrap text-[var(--text-secondary)]">
+                            {formatDateShort(m.added_at)}
+                          </td>
+                          <td className="px-5 py-3 text-right whitespace-nowrap">
+                            <button
+                              onClick={() => handleRemoveMember(m)}
+                              className="rounded-full border border-[var(--border)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:border-red-300 hover:text-red-600 dark:hover:border-red-700 dark:hover:text-red-400"
+                            >
+                              Entfernen
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

@@ -30,6 +30,12 @@ export interface SubscriberListMember {
   status: 'pending' | 'active' | 'blocked'
   token: string
   added_at: string
+  /** Wann der Subscriber sich auf der Site angemeldet hat (newsletter_subscribers.created_at). */
+  subscriber_created_at: string
+  confirmed_at: string | null
+  engagement_score: number | null
+  engagement_tier: 'active' | 'moderate' | 'dormant' | 'cold' | null
+  tags: string[]
 }
 
 // ─── Listen ────────────────────────────────────────────────────────────
@@ -276,30 +282,49 @@ export async function removeMemberByToken(token: string): Promise<{ removed: boo
 
 export async function getListMembers(listId: number): Promise<SubscriberListMember[]> {
   const db = getDb()
-  const rows = await db
-    .select({
-      id: subscriberListMembers.id,
-      listId: subscriberListMembers.listId,
-      subscriberId: subscriberListMembers.subscriberId,
-      email: newsletterSubscribers.email,
-      firstName: newsletterSubscribers.firstName,
-      status: newsletterSubscribers.status,
-      token: subscriberListMembers.token,
-      addedAt: subscriberListMembers.addedAt,
-    })
-    .from(subscriberListMembers)
-    .innerJoin(newsletterSubscribers, eq(newsletterSubscribers.id, subscriberListMembers.subscriberId))
-    .where(eq(subscriberListMembers.listId, listId))
-    .orderBy(newsletterSubscribers.email)
-  return rows.map((r) => ({
-    id: r.id,
-    list_id: r.listId,
-    subscriber_id: r.subscriberId,
-    email: r.email,
-    first_name: r.firstName ?? null,
-    status: r.status,
-    token: r.token,
-    added_at: r.addedAt,
+  // Eine Query: Members + Subscriber + Engagement (LEFT JOIN) + Tags (GROUP_CONCAT).
+  // Spiegelt das Pattern aus getAllSubscribersEnriched, damit die Listen-Detailansicht
+  // die gleichen Signale wie die Stammliste zeigt (Engagement-Tier, Tags, Datum).
+  const rows = await db.run(sql`
+    SELECT
+      slm.id            AS id,
+      slm.list_id       AS list_id,
+      slm.subscriber_id AS subscriber_id,
+      slm.token         AS token,
+      slm.added_at      AS added_at,
+      ns.email          AS email,
+      ns.first_name     AS first_name,
+      ns.status         AS status,
+      ns.created_at     AS subscriber_created_at,
+      ns.confirmed_at   AS confirmed_at,
+      se.score          AS engagement_score,
+      se.tier           AS engagement_tier,
+      (
+        SELECT GROUP_CONCAT(t.tag, '||')
+        FROM subscriber_tags t
+        WHERE t.site_id = ns.site_id AND t.subscriber_email = ns.email
+      ) AS tags_concat
+    FROM subscriber_list_members slm
+    INNER JOIN newsletter_subscribers ns ON ns.id = slm.subscriber_id
+    LEFT JOIN subscriber_engagement se
+      ON se.site_id = ns.site_id AND se.subscriber_email = ns.email
+    WHERE slm.list_id = ${listId}
+    ORDER BY ns.email
+  `)
+  return (rows.rows ?? []).map((r) => ({
+    id: r.id as number,
+    list_id: r.list_id as number,
+    subscriber_id: r.subscriber_id as number,
+    email: r.email as string,
+    first_name: (r.first_name as string | null) ?? null,
+    status: r.status as 'pending' | 'active' | 'blocked',
+    token: r.token as string,
+    added_at: r.added_at as string,
+    subscriber_created_at: r.subscriber_created_at as string,
+    confirmed_at: (r.confirmed_at as string | null) ?? null,
+    engagement_score: (r.engagement_score as number | null) ?? null,
+    engagement_tier: (r.engagement_tier as 'active' | 'moderate' | 'dormant' | 'cold' | null) ?? null,
+    tags: r.tags_concat ? (r.tags_concat as string).split('||') : [],
   }))
 }
 
