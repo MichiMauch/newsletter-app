@@ -154,17 +154,17 @@ export default function ListsTab() {
     }
   }
 
-  async function handleTogglePrimary(id: number, currentlyPrimary: boolean) {
+  async function handlePromoteToPrimary(id: number) {
     setPrimaryBusy(true)
     try {
       const res = await fetch('/api/admin/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set-primary', id, makePrimary: !currentlyPrimary }),
+        body: JSON.stringify({ action: 'set-primary', id, makePrimary: true }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Fehler beim Setzen der Hauptliste.')
-      toast.success(currentlyPrimary ? 'Hauptliste-Markierung entfernt.' : 'Als Hauptliste markiert.')
+      toast.success('Als Hauptliste markiert.')
       await loadLists()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Fehler')
@@ -315,18 +315,27 @@ export default function ListsTab() {
                       </div>
                     ) : (
                       <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          onClick={() => handleTogglePrimary(l.id, l.is_primary)}
-                          disabled={primaryBusy}
-                          className={`rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
-                            l.is_primary
-                              ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/20'
-                              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-emerald-300 hover:text-emerald-700 dark:hover:border-emerald-700 dark:hover:text-emerald-300'
-                          }`}
-                          title={l.is_primary ? 'Diese Liste ist die Hauptliste der Site' : 'Als Hauptliste markieren (max. eine pro Site)'}
-                        >
-                          {l.is_primary ? '★ Hauptliste' : 'Als Hauptliste'}
-                        </button>
+                        {l.is_primary ? (
+                          // Schon Hauptliste: nur Anzeige, kein Klick — Hauptliste
+                          // wird ausschliesslich gewechselt, indem eine ANDERE
+                          // Liste als Hauptliste markiert wird. Damit kann die
+                          // Site nie aus Versehen "ohne Hauptliste" dastehen.
+                          <span
+                            className="inline-flex cursor-default items-center rounded-full border border-emerald-300 px-3 py-1.5 text-xs text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
+                            title="Aktuelle Hauptliste — eine andere Liste promoten, um zu wechseln."
+                          >
+                            ★ Hauptliste
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handlePromoteToPrimary(l.id)}
+                            disabled={primaryBusy}
+                            className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 dark:hover:border-emerald-700 dark:hover:text-emerald-300"
+                            title="Als Hauptliste markieren — die bisherige Hauptliste wird automatisch demotet."
+                          >
+                            Als Hauptliste
+                          </button>
+                        )}
                         <button
                           onClick={() => loadMembers(l.id)}
                           className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"

@@ -5,7 +5,6 @@
  */
 
 import {
-  getActiveSubscribers,
   getPrimaryListId,
   getSubscribersByTagSignal,
   recordNewsletterSend,
@@ -378,19 +377,22 @@ export async function actionSend(body: NewsletterActionBody, site: SiteConfig): 
       return jsonError('Keine Abonnenten matchen das gewählte Segment.', 400)
     }
   } else {
-    // Default: Hauptliste der Site. Falls keine konfiguriert ist, fallback
-    // auf alle aktiven Subscriber (Bootstrap-Phase oder Site ohne Hauptliste).
+    // Default: Hauptliste der Site. Genau eine Liste pro Site muss als
+    // Hauptliste markiert sein — wenn nicht, ist die Site-Konfiguration
+    // kaputt und wir wollen das laut machen, statt still alle aktiven
+    // Subscriber zu versenden (das war der alte 'getConfirmedSubscribers'-
+    // Fallback, der mit dem Subscription-Center-Modell unerwartetes
+    // Verhalten waere).
     const primaryId = await getPrimaryListId(SITE_ID)
-    if (primaryId !== null) {
-      subscribers = await getListEmailsForSend(primaryId)
-      if (subscribers.length === 0) {
-        return jsonError('Hauptliste hat keine Mitglieder.', 400)
-      }
-    } else {
-      subscribers = await getActiveSubscribers(SITE_ID)
-      if (subscribers.length === 0) {
-        return jsonError('Keine aktiven Abonnenten vorhanden.', 400)
-      }
+    if (primaryId === null) {
+      return jsonError(
+        'Keine Hauptliste konfiguriert. Bitte im Listen-Tab eine Liste als Hauptliste markieren.',
+        409,
+      )
+    }
+    subscribers = await getListEmailsForSend(primaryId)
+    if (subscribers.length === 0) {
+      return jsonError('Hauptliste hat keine Mitglieder.', 400)
     }
   }
 
