@@ -100,4 +100,47 @@ describe('buildMultiBlockNewsletterHtml', () => {
     const html = buildMultiBlockNewsletterHtml(SITE, blocks, postsMap, '#', '   ')
     expect(html).not.toContain('display:none')
   })
+
+  it('applies hero block titleOverride and summaryOverride', () => {
+    const heroWithOverride: NewsletterBlock[] = [
+      {
+        id: 'h',
+        type: 'hero',
+        slug: 'hello',
+        titleOverride: 'Custom Headline',
+        summaryOverride: 'Custom teaser text',
+      },
+    ]
+    const html = buildMultiBlockNewsletterHtml(SITE, heroWithOverride, postsMap, '#')
+    expect(html).toContain('Custom Headline')
+    expect(html).toContain('Custom teaser text')
+    expect(html).not.toContain('>Hello<')
+    expect(html).not.toContain('Sum')
+  })
+
+  it('falls back to original when override is empty/whitespace', () => {
+    const heroWithBlankOverride: NewsletterBlock[] = [
+      { id: 'h', type: 'hero', slug: 'hello', titleOverride: '   ', summaryOverride: '' },
+    ]
+    const html = buildMultiBlockNewsletterHtml(SITE, heroWithBlankOverride, postsMap, '#')
+    expect(html).toContain('Hello')
+    expect(html).toContain('Sum')
+  })
+
+  it('applies link-list per-slug overrides', () => {
+    const POST2: PostRef = { slug: 'world', title: 'World', summary: 'Sum2', image: null, date: '2026-04-02' }
+    const linkList: NewsletterBlock[] = [
+      {
+        id: 'll',
+        type: 'link-list',
+        slugs: ['hello', 'world'],
+        overrides: { hello: { title: 'HELLO-OVR' }, world: { summary: 'WORLD-OVR' } },
+      },
+    ]
+    const html = buildMultiBlockNewsletterHtml(SITE, linkList, { hello: POST, world: POST2 }, '#')
+    expect(html).toContain('HELLO-OVR')
+    expect(html).toContain('WORLD-OVR')
+    expect(html).toContain('Sum')
+    expect(html).toContain('World')
+  })
 })

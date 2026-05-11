@@ -14,6 +14,7 @@ import {
   getUsedSlugs,
   parseScheduleLocal,
 } from '@/lib/newsletter-block-helpers'
+import { resolveHeroPost, resolveLinkListPost } from '@/lib/newsletter-template'
 import {
   loadCustomTemplates,
   saveCustomTemplates,
@@ -203,12 +204,18 @@ export function useComposeState({
       for (const block of blocks) {
         if (block.type === 'hero' && block.slug) {
           const p = bySlug.get(block.slug)
-          if (p) postData.push({ title: p.title, summary: p.summary })
+          if (p) {
+            const resolved = resolveHeroPost(block, p)
+            postData.push({ title: resolved.title, summary: resolved.summary })
+          }
         }
         if (block.type === 'link-list') {
           for (const s of block.slugs) {
             const p = bySlug.get(s)
-            if (p) postData.push({ title: p.title, summary: p.summary })
+            if (p) {
+              const resolved = resolveLinkListPost(block, s, p)
+              postData.push({ title: resolved.title, summary: resolved.summary })
+            }
           }
         }
       }
@@ -249,12 +256,18 @@ export function useComposeState({
       for (const block of blocks) {
         if (block.type === 'hero' && block.slug) {
           const p = bySlug.get(block.slug)
-          if (p) postData.push({ title: p.title, summary: p.summary })
+          if (p) {
+            const resolved = resolveHeroPost(block, p)
+            postData.push({ title: resolved.title, summary: resolved.summary })
+          }
         }
         if (block.type === 'link-list') {
           for (const s of block.slugs) {
             const p = bySlug.get(s)
-            if (p) postData.push({ title: p.title, summary: p.summary })
+            if (p) {
+              const resolved = resolveLinkListPost(block, s, p)
+              postData.push({ title: resolved.title, summary: resolved.summary })
+            }
           }
         }
       }

@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import type { NewsletterBlock, PostRef } from '@/lib/newsletter-blocks'
+import { resolveHeroPost, resolveLinkListPost } from '@/lib/newsletter-template'
 
 export type ToolName =
   | 'update_subject'
@@ -111,7 +112,8 @@ function serializeBlock(b: NewsletterBlock, postsMap: Record<string, PostRef>) {
     case 'text':
       return { id: b.id, type: b.type, content: b.content }
     case 'hero': {
-      const post = b.slug ? postsMap[b.slug] : undefined
+      const base = b.slug ? postsMap[b.slug] : undefined
+      const post = base ? resolveHeroPost(b, base) : undefined
       return {
         id: b.id,
         type: b.type,
@@ -122,7 +124,8 @@ function serializeBlock(b: NewsletterBlock, postsMap: Record<string, PostRef>) {
     }
     case 'link-list': {
       const posts = b.slugs.map((s) => {
-        const p = postsMap[s]
+        const base = postsMap[s]
+        const p = base ? resolveLinkListPost(b, s, base) : undefined
         return { slug: s, title: p?.title, summary: p?.summary }
       })
       return { id: b.id, type: b.type, slugs: b.slugs, posts }

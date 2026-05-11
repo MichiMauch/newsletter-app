@@ -14,6 +14,8 @@ export interface HeroBlock {
   id: string
   type: 'hero'
   slug: string
+  titleOverride?: string
+  summaryOverride?: string
 }
 
 export interface TextBlock {
@@ -22,10 +24,16 @@ export interface TextBlock {
   content: string
 }
 
+export interface PostOverride {
+  title?: string
+  summary?: string
+}
+
 export interface LinkListBlock {
   id: string
   type: 'link-list'
   slugs: string[]
+  overrides?: Record<string, PostOverride>
 }
 
 export interface LastNewsletterBlock {

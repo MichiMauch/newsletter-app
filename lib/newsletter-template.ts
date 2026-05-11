@@ -5,8 +5,23 @@
  */
 
 import type { SiteConfig } from './site-config'
-import type { NewsletterBlock, PostRef } from './newsletter-blocks'
+import type { HeroBlock, LinkListBlock, NewsletterBlock, PostRef } from './newsletter-blocks'
 import { sanitizeHtml } from './sanitize'
+
+export function resolveHeroPost(block: HeroBlock, base: PostRef): PostRef {
+  const t = block.titleOverride?.trim()
+  const s = block.summaryOverride?.trim()
+  if (!t && !s) return base
+  return { ...base, title: t || base.title, summary: s || base.summary }
+}
+
+export function resolveLinkListPost(block: LinkListBlock, slug: string, base: PostRef): PostRef {
+  const o = block.overrides?.[slug]
+  const t = o?.title?.trim()
+  const s = o?.summary?.trim()
+  if (!t && !s) return base
+  return { ...base, title: t || base.title, summary: s || base.summary }
+}
 
 export function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -198,10 +213,15 @@ export function buildMultiBlockNewsletterHtml(
       switch (block.type) {
         case 'hero': {
           const post = postsMap[block.slug]
-          return post ? renderHeroBlock(post, site) : ''
+          return post ? renderHeroBlock(resolveHeroPost(block, post), site) : ''
         }
         case 'link-list': {
-          const posts = block.slugs.map((s) => postsMap[s]).filter(Boolean)
+          const posts = block.slugs
+            .map((s) => {
+              const base = postsMap[s]
+              return base ? resolveLinkListPost(block, s, base) : null
+            })
+            .filter((p): p is PostRef => Boolean(p))
           return posts.length > 0 ? renderLinkListBlock(posts, site) : ''
         }
         case 'text':

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { NewsletterBlock } from '@/lib/newsletter-blocks'
+import type { NewsletterBlock, PostOverride } from '@/lib/newsletter-blocks'
 import { formatDateShort, blockTypeLabels, type Post } from '../types'
 import TiptapEditor from '../../TiptapEditor'
 
@@ -46,11 +46,23 @@ interface DropSlotProps {
   onDrop: (slug: string) => void
   onClear: () => void
   label?: string
+  override?: PostOverride
+  onOverrideChange?: (next: PostOverride | undefined) => void
 }
 
-export function DropSlot({ slug, posts, onDrop, onClear, label }: DropSlotProps) {
+export function DropSlot({ slug, posts, onDrop, onClear, label, override, onOverrideChange }: DropSlotProps) {
   const [dragOver, setDragOver] = useState(false)
+  const [editing, setEditing] = useState(false)
   const post = slug ? posts.find((p) => p.slug === slug) : null
+  const hasOverride = Boolean((override?.title && override.title.trim()) || (override?.summary && override.summary.trim()))
+
+  function updateOverride(next: PostOverride) {
+    if (!onOverrideChange) return
+    const cleanTitle = next.title?.trim() ? next.title : undefined
+    const cleanSummary = next.summary?.trim() ? next.summary : undefined
+    if (!cleanTitle && !cleanSummary) onOverrideChange(undefined)
+    else onOverrideChange({ title: cleanTitle, summary: cleanSummary })
+  }
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault()
@@ -65,6 +77,8 @@ export function DropSlot({ slug, posts, onDrop, onClear, label }: DropSlotProps)
   }
 
   if (post) {
+    const displayTitle = override?.title?.trim() || post.title
+    const displaySummary = override?.summary?.trim() || post.summary
     return (
       <div
         onDragOver={handleDragOver}
@@ -90,9 +104,27 @@ export function DropSlot({ slug, posts, onDrop, onClear, label }: DropSlotProps)
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-[var(--text)]">{post.title}</div>
+            <div className="flex items-center gap-2">
+              <div className="truncate text-sm font-medium text-[var(--text)]">{displayTitle}</div>
+              {hasOverride && (
+                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  angepasst
+                </span>
+              )}
+            </div>
             <div className="text-xs text-[var(--text-secondary)]">{formatDateShort(post.date)}</div>
           </div>
+          {onOverrideChange && (
+            <button
+              type="button"
+              onClick={() => setEditing((v) => !v)}
+              className="shrink-0 rounded-full bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-primary-100 hover:text-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
+              title={editing ? 'Schliessen' : 'Titel & Teaser anpassen'}
+              aria-pressed={editing}
+            >
+              {editing ? 'Fertig' : '✎'}
+            </button>
+          )}
           <button
             onClick={onClear}
             className="shrink-0 rounded-full bg-[var(--bg-secondary)] px-2 py-1 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
@@ -101,6 +133,42 @@ export function DropSlot({ slug, posts, onDrop, onClear, label }: DropSlotProps)
             &times;
           </button>
         </div>
+        {onOverrideChange && editing && (
+          <div className="border-t border-[var(--border)] p-3 space-y-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Titel</label>
+              <input
+                type="text"
+                value={override?.title ?? ''}
+                placeholder={post.title}
+                onChange={(e) => updateOverride({ title: e.target.value, summary: override?.summary })}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Teaser</label>
+              <textarea
+                value={override?.summary ?? ''}
+                placeholder={post.summary}
+                onChange={(e) => updateOverride({ title: override?.title, summary: e.target.value })}
+                rows={3}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-400/30 resize-y"
+              />
+              <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                Aktuell: {displaySummary || <em>(leer)</em>}
+              </div>
+            </div>
+            {hasOverride && (
+              <button
+                type="button"
+                onClick={() => onOverrideChange?.(undefined)}
+                className="text-xs text-primary-600 hover:underline dark:text-primary-400"
+              >
+                Original wiederherstellen
+              </button>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -200,7 +268,15 @@ export function SlotCard({ block, index, posts, allBlocks, onUpdate, onRemove, o
           slug={block.slug}
           posts={posts}
           onDrop={(slug) => onUpdate({ ...block, slug })}
-          onClear={() => onUpdate({ ...block, slug: '' })}
+          onClear={() => onUpdate({ ...block, slug: '', titleOverride: undefined, summaryOverride: undefined })}
+          override={
+            block.titleOverride || block.summaryOverride
+              ? { title: block.titleOverride, summary: block.summaryOverride }
+              : undefined
+          }
+          onOverrideChange={(o) =>
+            onUpdate({ ...block, titleOverride: o?.title, summaryOverride: o?.summary })
+          }
         />
       )}
 
@@ -214,13 +290,30 @@ export function SlotCard({ block, index, posts, allBlocks, onUpdate, onRemove, o
               onDrop={(newSlug) => {
                 const newSlugs = [...block.slugs]
                 newSlugs[i] = newSlug
-                onUpdate({ ...block, slugs: newSlugs })
+                // If the slot's slug changes, drop any stale override on the old slug.
+                const newOverrides = { ...(block.overrides ?? {}) }
+                if (slug && slug !== newSlug) delete newOverrides[slug]
+                const hasAny = Object.keys(newOverrides).length > 0
+                onUpdate({ ...block, slugs: newSlugs, overrides: hasAny ? newOverrides : undefined })
               }}
               onClear={() => {
+                const removed = block.slugs[i]
                 const newSlugs = block.slugs.filter((_, idx) => idx !== i)
-                onUpdate({ ...block, slugs: newSlugs })
+                const newOverrides = { ...(block.overrides ?? {}) }
+                if (removed) delete newOverrides[removed]
+                const hasAny = Object.keys(newOverrides).length > 0
+                onUpdate({ ...block, slugs: newSlugs, overrides: hasAny ? newOverrides : undefined })
               }}
               label={`Artikel ${i + 1}`}
+              override={slug ? block.overrides?.[slug] : undefined}
+              onOverrideChange={(o) => {
+                if (!slug) return
+                const newOverrides = { ...(block.overrides ?? {}) }
+                if (!o) delete newOverrides[slug]
+                else newOverrides[slug] = o
+                const hasAny = Object.keys(newOverrides).length > 0
+                onUpdate({ ...block, overrides: hasAny ? newOverrides : undefined })
+              }}
             />
           ))}
           <button
