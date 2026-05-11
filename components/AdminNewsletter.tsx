@@ -31,12 +31,13 @@ import AdminSidebar from './admin/AdminSidebar'
 import { useDataLoader } from '@/hooks/useDataLoader'
 import SendCenterNav from './admin/send/SendCenterNav'
 import ReadyToSendList from './admin/send/ReadyToSendList'
+import SendPreflight from './admin/send/SendPreflight'
 import DraftList from './admin/compose/DraftList'
 
 
 // --- Trend Charts ------------------------------------------------------
 
-export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTab = 'list', automationId }: { initialTab?: Tab; initialSubTab?: SendSubTab; automationId?: number } = {}) {
+export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTab = 'list', automationId, sendDraftId }: { initialTab?: Tab; initialSubTab?: SendSubTab; automationId?: number; sendDraftId?: string } = {}) {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [sendSubTab, setSendSubTab] = useState<SendSubTab>(initialSubTab)
   // Heavy tabs (Automations editor, History charts) used to block the click-
@@ -202,13 +203,18 @@ export default function AdminNewsletter({ initialTab = 'dashboard', initialSubTa
       )}
 
       {/* --- Send Center: sub-nav -------------------------------- */}
-      {tab === 'send' && (
+      {tab === 'send' && !sendDraftId && (
         <SendCenterNav active={sendSubTab} pending={pendingSubTab} onChange={setSendSubTabWithUrl} />
       )}
 
       {/* --- Send Center › Bereit zum Senden --------------------- */}
-      {tab === 'send' && sendSubTab === 'list' && (
+      {tab === 'send' && sendSubTab === 'list' && !sendDraftId && (
         <ReadyToSendList />
+      )}
+
+      {/* --- Send Center › Versand-Konfiguration für einen Entwurf */}
+      {tab === 'send' && sendDraftId && (
+        <SendPreflight draftId={sendDraftId} />
       )}
 
       {/* AI Co-Pilot — controlled by sidebar trigger */}
