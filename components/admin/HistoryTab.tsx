@@ -22,6 +22,23 @@ const RECIPIENT_BADGE: Record<NewsletterRecipientRow['status'], { label: string;
   clicked: { label: 'Geklickt', cls: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300' },
   bounced: { label: 'Bounced', cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300' },
   complained: { label: 'Beschwerde', cls: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300' },
+  // Verzögert ist ausdrücklich kein Fehler — Resend versucht weiter.
+  delayed: { label: 'Verzögert', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300' },
+  failed: { label: 'Fehlgeschlagen', cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300' },
+  suppressed: { label: 'Gesperrt', cls: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300' },
+}
+
+/**
+ * Wirklich fehlgeschlagen ist nur, was Resend nie angenommen hat — erkennbar an
+ * der fehlenden resend_email_id. Genau danach sucht auch das Backend
+ * (getFailedRecipientsForSend).
+ *
+ * Vorher filterte das UI auf status === 'sent' und zählte damit jede Mail mit,
+ * zu der noch kein Webhook eingetroffen war: verzögerte Zustellungen landeten
+ * so unter "fehlgeschlagen", obwohl Resend noch weiterversuchte.
+ */
+function neverAccepted(r: NewsletterRecipientRow): boolean {
+  return r.resend_email_id === null
 }
 
 interface HistoryTabProps {
@@ -100,7 +117,7 @@ export default function HistoryTab({
   }
 
   async function handleRetryFailed(send: NewsletterSend) {
-    const failedCount = sendRecipients.filter((r) => r.status === 'sent').length
+    const failedCount = sendRecipients.filter(neverAccepted).length
     if (failedCount === 0) {
       toast.info('Keine fehlgeschlagenen Empfänger.')
       return
@@ -164,7 +181,7 @@ export default function HistoryTab({
                 <div className="mt-1 text-sm text-[var(--text-secondary)]">{formatDate(selectedSend.sent_at)} · {selectedSend.recipient_count} Empfänger</div>
               </div>
               {(() => {
-                const failedRecipients = sendRecipients.filter((r) => r.status === 'sent')
+                const failedRecipients = sendRecipients.filter(neverAccepted)
                 return !loadingDetail && failedRecipients.length > 0 && (
                   <div className="flex items-center gap-2 shrink-0">
                     {retryConfirm && !retrying && (

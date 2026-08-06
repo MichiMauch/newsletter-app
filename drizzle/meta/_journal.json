@@ -148,6 +148,13 @@
       "when": 1814020400000,
       "tag": "0020_lists_slug_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1814020500000,
+      "tag": "0021_link_click_classification",
+      "breakpoints": true
     }
   ]
 }

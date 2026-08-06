@@ -105,7 +105,13 @@ export const newsletterRecipients = sqliteTable('newsletter_recipients', {
   sendId: integer('send_id').notNull(),
   email: text('email').notNull(),
   resendEmailId: text('resend_email_id').unique(),
-  status: text('status').notNull().default('sent').$type<'sent' | 'delivered' | 'clicked' | 'bounced' | 'complained'>(),
+  // 'sent'       = an Resend übergeben, noch keine Rückmeldung
+  // 'delayed'    = Resend versucht weiter zuzustellen (email.delivery_delayed) —
+  //                NICHT fehlgeschlagen, ein Retry würde doppelt zustellen
+  // 'failed'     = Resend konnte nicht zustellen (email.failed)
+  // 'suppressed' = Adresse steht auf Resends Sperrliste (email.suppressed)
+  status: text('status').notNull().default('sent')
+    .$type<'sent' | 'delivered' | 'clicked' | 'bounced' | 'complained' | 'delayed' | 'failed' | 'suppressed'>(),
   deliveredAt: text('delivered_at'),
   clickedAt: text('clicked_at'),
   clickCount: integer('click_count').notNull().default(0),
@@ -173,8 +179,17 @@ export const newsletterLinkClicks = sqliteTable('newsletter_link_clicks', {
   recipientId: integer('recipient_id'),
   url: text('url').notNull(),
   clickedAt: text('clicked_at').notNull().default(sql`(datetime('now'))`),
+  // Klicks von Mail-Security-Scannern: mehrere verschiedene Links innerhalb
+  // weniger hundert Millisekunden. Werden erfasst, zählen aber nicht als
+  // Engagement (siehe classifyClicks in newsletter-sends.ts).
+  isBot: integer('is_bot').notNull().default(0),
+  // Klick auf den Abmelde-/Einstellungslink. Ebenfalls kein Engagement —
+  // sonst hebt eine Abmeldung die Klickrate.
+  isUnsubscribe: integer('is_unsubscribe').notNull().default(0),
 }, (table) => [
   index('idx_nlc_send_id').on(table.sendId),
+  // Für das Scanner-Zeitfenster: alle Klicks eines Empfängers in Klickreihenfolge.
+  index('idx_nlc_recipient_time').on(table.recipientId, table.clickedAt),
 ])
 
 // ─── Email Automations ──────────────────────────────────────────────────

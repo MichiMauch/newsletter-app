@@ -34,14 +34,19 @@ interface Drift {
 async function main() {
   const db = getDb()
 
-  // delivered = jede Zeile mit Zustellzeitpunkt (status kann schon 'clicked' sein),
-  // clicked = jede Zeile mit mindestens einem Klick, unabhängig vom Endstatus.
+  // delivered = jede Zeile mit Zustellzeitpunkt (status kann schon 'clicked' sein).
+  // clicked   = Empfänger mit mindestens einem Engagement-Klick, also ohne
+  //             Scanner- und Abmeldeklicks. Quelle ist newsletter_link_clicks,
+  //             nicht recipients.click_count — dort steht dasselbe abgeleitete
+  //             Ergebnis, das hier gerade überprüft wird.
   const rows = await db.run(sql`
     SELECT
       s.id, s.subject,
       s.delivered_count, s.clicked_count, s.bounced_count, s.complained_count,
       (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = s.id AND r.delivered_at IS NOT NULL) AS actual_delivered,
-      (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = s.id AND r.click_count > 0)           AS actual_clicked,
+      (SELECT COUNT(DISTINCT lc.recipient_id) FROM newsletter_link_clicks lc
+         WHERE lc.send_id = s.id AND lc.recipient_id IS NOT NULL
+           AND lc.is_bot = 0 AND lc.is_unsubscribe = 0)                                                     AS actual_clicked,
       (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = s.id AND r.status = 'bounced')        AS actual_bounced,
       (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = s.id AND r.status = 'complained')     AS actual_complained
     FROM newsletter_sends s
@@ -94,17 +99,39 @@ async function main() {
   }
   if (drifts.length === 0 && variantDrift.length === 0) return
 
+  // Zuerst die Empfängerzeilen: click_count ist selbst abgeleitet und muss
+  // stimmen, bevor irgendetwas darauf aufbaut.
+  await db.run(sql`
+    UPDATE newsletter_recipients SET
+      click_count = (SELECT COUNT(*) FROM newsletter_link_clicks lc
+                     WHERE lc.recipient_id = newsletter_recipients.id AND lc.is_bot = 0 AND lc.is_unsubscribe = 0),
+      clicked_at  = (SELECT MIN(lc.clicked_at) FROM newsletter_link_clicks lc
+                     WHERE lc.recipient_id = newsletter_recipients.id AND lc.is_bot = 0 AND lc.is_unsubscribe = 0),
+      status = CASE
+        WHEN status IN ('bounced', 'complained') THEN status
+        WHEN (SELECT COUNT(*) FROM newsletter_link_clicks lc
+              WHERE lc.recipient_id = newsletter_recipients.id AND lc.is_bot = 0 AND lc.is_unsubscribe = 0) > 0 THEN 'clicked'
+        WHEN status = 'clicked' AND delivered_at IS NOT NULL THEN 'delivered'
+        WHEN status = 'clicked' THEN 'sent'
+        ELSE status
+      END
+  `)
   await db.run(sql`
     UPDATE newsletter_sends SET
       delivered_count  = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_sends.id AND r.delivered_at IS NOT NULL),
-      clicked_count    = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_sends.id AND r.click_count > 0),
+      clicked_count    = (SELECT COUNT(DISTINCT lc.recipient_id) FROM newsletter_link_clicks lc
+                          WHERE lc.send_id = newsletter_sends.id AND lc.recipient_id IS NOT NULL
+                            AND lc.is_bot = 0 AND lc.is_unsubscribe = 0),
       bounced_count    = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_sends.id AND r.status = 'bounced'),
       complained_count = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_sends.id AND r.status = 'complained')
   `)
   await db.run(sql`
     UPDATE newsletter_send_variants SET
       delivered_count  = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_send_variants.send_id AND r.variant_label = newsletter_send_variants.label AND r.delivered_at IS NOT NULL),
-      clicked_count    = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_send_variants.send_id AND r.variant_label = newsletter_send_variants.label AND r.click_count > 0),
+      clicked_count    = (SELECT COUNT(DISTINCT lc.recipient_id) FROM newsletter_link_clicks lc
+                          JOIN newsletter_recipients r ON r.id = lc.recipient_id
+                          WHERE lc.send_id = newsletter_send_variants.send_id AND r.variant_label = newsletter_send_variants.label
+                            AND lc.is_bot = 0 AND lc.is_unsubscribe = 0),
       bounced_count    = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_send_variants.send_id AND r.variant_label = newsletter_send_variants.label AND r.status = 'bounced'),
       complained_count = (SELECT COUNT(*) FROM newsletter_recipients r WHERE r.send_id = newsletter_send_variants.send_id AND r.variant_label = newsletter_send_variants.label AND r.status = 'complained')
   `)

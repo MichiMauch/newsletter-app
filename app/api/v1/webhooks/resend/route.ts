@@ -14,6 +14,7 @@ interface ResendWebhookPayload {
     email_id: string
     bounce?: ResendBounce
     click?: { link?: string }
+    failed?: { reason?: string }
   }
 }
 
@@ -74,6 +75,32 @@ export async function POST(request: Request) {
         break
       case 'email.complained':
         await updateRecipientEvent(emailId, 'complained', created_at)
+        break
+      case 'email.delivery_delayed':
+        // Resend versucht weiter zuzustellen. Ohne diesen Fall blieb die Mail
+        // auf 'sent' stehen und war im UI nicht von einem echten Fehlschlag
+        // zu unterscheiden.
+        await updateRecipientEvent(emailId, 'delayed', created_at)
+        break
+      case 'email.failed':
+        console.warn(`[webhook/resend] email.failed für ${emailId}:`, data.failed?.reason ?? '(kein Grund angegeben)')
+        await updateRecipientEvent(emailId, 'failed', created_at)
+        break
+      case 'email.suppressed':
+        // Adresse steht auf Resends Sperrliste — es wurde gar nicht erst
+        // zugestellt. Kein Bounce, deshalb auch keine Bounce-Zählung.
+        await updateRecipientEvent(emailId, 'suppressed', created_at)
+        break
+      case 'email.sent':
+      case 'email.scheduled':
+        // Bekannt, aber ohne Mehrwert: den Übergabezeitpunkt kennen wir aus dem
+        // eigenen Versand-Log, und geplante Sends verwaltet scheduled_sends.
+        break
+      default:
+        // Kein stiller Verlust: der Webhook ist bei Resend für deutlich mehr
+        // Event-Typen registriert, als hier verarbeitet werden. Wenn ein neuer
+        // auftaucht, soll er sichtbar sein statt lautlos zu verschwinden.
+        console.info(`[webhook/resend] Unbehandelter Event-Typ: ${type}`)
         break
     }
 

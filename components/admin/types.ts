@@ -45,7 +45,7 @@ export interface NewsletterRecipientRow {
   id: number
   email: string
   resend_email_id: string | null
-  status: 'sent' | 'delivered' | 'clicked' | 'bounced' | 'complained'
+  status: 'sent' | 'delivered' | 'clicked' | 'bounced' | 'complained' | 'delayed' | 'failed' | 'suppressed'
   delivered_at: string | null
   clicked_at: string | null
   click_count: number

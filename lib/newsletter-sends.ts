@@ -31,6 +31,33 @@ export const TRACKED_SENDS = sql`status = 'sent' AND (delivered_count > 0 OR bou
  */
 export const PERMANENT_BOUNCE_TYPE = 'Permanent'
 
+// ─── Klick-Klassifikation ───────────────────────────────────────────────
+
+/**
+ * Ein Klick auf den Abmelde- oder Einstellungslink ist keine Zustimmung zum
+ * Inhalt. Weil Resend auch diese Links umschreibt, zählten sie bisher voll in
+ * die Klickrate — eine Abmeldung hob also die Kennzahl, die sie widerlegt.
+ * Die Klicks werden weiter erfasst, nur nicht als Engagement gewertet.
+ */
+export function isUnsubscribeUrl(url: string): boolean {
+  const path = url.toLowerCase()
+  return /\/(unsubscribe|abmelden|preferences|einstellungen|subscription-center)\b/.test(path)
+}
+
+/**
+ * Mail-Security-Scanner öffnen beim Zustellen jeden Link der Mail, um ihn zu
+ * prüfen. Das erzeugt mehrere Klicks auf VERSCHIEDENE URLs innerhalb weniger
+ * hundert Millisekunden — im Versand vom 06.08. zweimal drei Links in 106 bzw.
+ * 45 ms. Ein Mensch schafft das nicht.
+ *
+ * Die Schwelle ist bewusst konservativ: lieber einen Scanner übersehen als
+ * einen echten Leser als Bot abstempeln. Deshalb drei verschiedene URLs statt
+ * zwei, und ein enges Fenster. Mehrfachklicks auf DIESELBE URL (echtes
+ * Verhalten: zweimal auf denselben Artikel tippen) lösen nichts aus.
+ */
+export const SCANNER_WINDOW_MS = 2_000
+export const SCANNER_DISTINCT_URLS = 3
+
 export function isPermanentBounce(bounceType: string | null | undefined): boolean {
   return bounceType?.toLowerCase() === PERMANENT_BOUNCE_TYPE.toLowerCase()
 }
@@ -197,9 +224,112 @@ export async function recordNewsletterRecipientsBatch(
   }
 }
 
+/** Fallback, wenn Resend ausnahmsweise kein `click.link` mitschickt. */
+const UNKNOWN_CLICK_URL = '(unbekannt)'
+
+/**
+ * Prüft rückwirkend, ob die letzten Klicks dieses Empfängers ein Scanner-Burst
+ * waren, und markiert in dem Fall das ganze Fenster als Bot.
+ *
+ * Rückwirkend, weil die Entscheidung beim ersten Klick noch nicht fällt: erst
+ * wenn der dritte Link innerhalb von zwei Sekunden kommt, ist klar, dass auch
+ * die ersten beiden vom Scanner stammten.
+ */
+async function flagScannerBurst(recipientId: number, timestamp: string): Promise<void> {
+  const clickedAtMs = new Date(timestamp).getTime()
+  if (Number.isNaN(clickedAtMs)) return
+  const windowStart = new Date(clickedAtMs - SCANNER_WINDOW_MS).toISOString()
+
+  const db = getDb()
+  // clicked_at ist ein ISO-8601-String — dort ist die lexikografische Ordnung
+  // gleich der zeitlichen, ein Stringvergleich reicht also.
+  const distinct = await db.run(sql`
+    SELECT COUNT(DISTINCT url) AS urls
+    FROM newsletter_link_clicks
+    WHERE recipient_id = ${recipientId}
+      AND clicked_at >= ${windowStart}
+      AND clicked_at <= ${timestamp}
+  `)
+  const urlCount = (distinct.rows?.[0]?.urls as number) ?? 0
+  if (urlCount < SCANNER_DISTINCT_URLS) return
+
+  await db.run(sql`
+    UPDATE newsletter_link_clicks
+    SET is_bot = 1
+    WHERE recipient_id = ${recipientId}
+      AND clicked_at >= ${windowStart}
+      AND clicked_at <= ${timestamp}
+  `)
+}
+
+/**
+ * Schreibt Klickzähler aus newsletter_link_clicks zurück — auf die
+ * Empfängerzeile, den Versand und ggf. die A/B-Variante.
+ *
+ * Gezählt wird nur, was als Engagement durchgeht: keine Scanner, keine
+ * Abmeldeklicks. Fällt dadurch der letzte Klick eines Empfängers weg, muss auch
+ * sein Status zurückfallen — sonst bliebe er als "Geklickt" stehen, obwohl kein
+ * Klick mehr zählt.
+ */
+async function syncClickCounters(
+  sendId: number,
+  recipientId: number,
+  variantLabel: string | null,
+): Promise<void> {
+  const db = getDb()
+  const ENGAGEMENT = sql`is_bot = 0 AND is_unsubscribe = 0`
+
+  await db.run(sql`
+    UPDATE newsletter_recipients
+    SET click_count = (
+          SELECT COUNT(*) FROM newsletter_link_clicks
+          WHERE recipient_id = ${recipientId} AND ${ENGAGEMENT}
+        ),
+        clicked_at = (
+          SELECT MIN(clicked_at) FROM newsletter_link_clicks
+          WHERE recipient_id = ${recipientId} AND ${ENGAGEMENT}
+        ),
+        status = CASE
+          WHEN status IN ('bounced', 'complained') THEN status
+          WHEN (SELECT COUNT(*) FROM newsletter_link_clicks
+                WHERE recipient_id = ${recipientId} AND ${ENGAGEMENT}) > 0 THEN 'clicked'
+          WHEN status = 'clicked' AND delivered_at IS NOT NULL THEN 'delivered'
+          WHEN status = 'clicked' THEN 'sent'
+          ELSE status
+        END
+    WHERE id = ${recipientId}
+  `)
+
+  await db.run(sql`
+    UPDATE newsletter_sends
+    SET clicked_count = (
+      SELECT COUNT(DISTINCT recipient_id) FROM newsletter_link_clicks
+      WHERE send_id = ${sendId} AND recipient_id IS NOT NULL AND ${ENGAGEMENT}
+    )
+    WHERE id = ${sendId}
+  `)
+
+  if (!variantLabel) return
+  await db.run(sql`
+    UPDATE newsletter_send_variants
+    SET clicked_count = (
+      SELECT COUNT(DISTINCT lc.recipient_id)
+      FROM newsletter_link_clicks lc
+      JOIN newsletter_recipients r ON r.id = lc.recipient_id
+      WHERE lc.send_id = ${sendId} AND lc.is_bot = 0 AND lc.is_unsubscribe = 0
+        AND r.variant_label = ${variantLabel}
+    )
+    WHERE send_id = ${sendId} AND label = ${variantLabel}
+  `)
+}
+
+export type RecipientEvent =
+  | 'delivered' | 'clicked' | 'bounced' | 'complained'
+  | 'delayed' | 'failed' | 'suppressed'
+
 export async function updateRecipientEvent(
   resendEmailId: string,
-  event: 'delivered' | 'clicked' | 'bounced' | 'complained',
+  event: RecipientEvent,
   timestamp: string,
   metadata?: { bounce_type?: string; bounce_sub_type?: string; bounce_message?: string; click_url?: string },
 ): Promise<void> {
@@ -270,9 +400,15 @@ export async function updateRecipientEvent(
     case 'delivered': {
       // `delivered_at IS NULL` ist der verlässliche Erst-Zustellungs-Marker:
       // status kann bereits 'clicked' sein, wenn der Klick-Webhook zuerst ankam.
+      // Aus 'delayed' (und den anderen Zwischenständen) muss 'delivered' werden,
+      // sobald die Zustellung doch klappt — sonst bliebe die Mail für immer als
+      // verzögert stehen. 'clicked' ist die stärkere Aussage und bleibt.
       await bumpIfChanged(sql`
         UPDATE newsletter_recipients
-        SET status = CASE WHEN status = 'sent' THEN 'delivered' ELSE status END,
+        SET status = CASE
+              WHEN status IN ('sent', 'delayed', 'failed', 'suppressed') THEN 'delivered'
+              ELSE status
+            END,
             delivered_at = ${timestamp}
         WHERE id = ${recipient.id}
           AND delivered_at IS NULL
@@ -281,28 +417,25 @@ export async function updateRecipientEvent(
       break
     }
     case 'clicked': {
-      // Erst der Guard-Versuch für den ersten Klick — greift er nicht, war es ein
-      // Folgeklick und nur der Zähler auf der Empfängerzeile wandert hoch.
-      const wasFirstClick = await bumpIfChanged(sql`
-        UPDATE newsletter_recipients
-        SET status = 'clicked', clicked_at = ${timestamp}, click_count = 1
-        WHERE id = ${recipient.id}
-          AND click_count = 0
-          AND status NOT IN ('bounced', 'complained')
-      `, 'clickedCount')
-      if (!wasFirstClick) {
-        await db.run(sql`
-          UPDATE newsletter_recipients
-          SET status = 'clicked', click_count = click_count + 1
-          WHERE id = ${recipient.id}
-            AND status NOT IN ('bounced', 'complained')
-        `)
-      }
-      if (metadata?.click_url) {
-        await db.insert(newsletterLinkClicks).values({
-          sendId: recipient.sendId, recipientId: recipient.id, url: metadata.click_url, clickedAt: timestamp,
-        })
-      }
+      // Klicks werden nicht mehr hochgezählt, sondern aus newsletter_link_clicks
+      // ABGELEITET. Das ist nötig, weil ein Klick nachträglich seine Bedeutung
+      // ändern kann: erst der zweite und dritte Scanner-Klick verraten, dass
+      // auch der erste keiner war. Nebeneffekt — abgeleitete Werte können
+      // grundsätzlich nicht doppelt zählen, egal wie die Webhooks eintreffen.
+      const url = metadata?.click_url ?? UNKNOWN_CLICK_URL
+      await db.run(sql`
+        INSERT INTO newsletter_link_clicks (send_id, recipient_id, url, clicked_at, is_bot, is_unsubscribe)
+        SELECT ${recipient.sendId}, ${recipient.id}, ${url}, ${timestamp}, 0, ${isUnsubscribeUrl(url) ? 1 : 0}
+        -- Resend stellt Webhooks erneut zu, wenn unsere Antwort nicht 200 war.
+        -- Gleicher Empfänger, gleiche URL, gleiche Millisekunde = dasselbe
+        -- Ereignis, kein zweiter Klick.
+        WHERE NOT EXISTS (
+          SELECT 1 FROM newsletter_link_clicks
+          WHERE recipient_id = ${recipient.id} AND url = ${url} AND clicked_at = ${timestamp}
+        )
+      `)
+      await flagScannerBurst(recipient.id, timestamp)
+      await syncClickCounters(recipient.sendId, recipient.id, recipient.variantLabel)
       break
     }
     case 'bounced': {
@@ -376,6 +509,25 @@ export async function updateRecipientEvent(
         ))
       break
     }
+    case 'delayed':
+    case 'failed':
+    case 'suppressed': {
+      // Zustandsmeldungen ohne eigenen Zähler. Sie überschreiben nur den
+      // Zwischenstand 'sent' — eine bereits zugestellte oder geklickte Mail
+      // darf ein spät eintreffendes Ereignis nicht zurückdrehen, und ein
+      // Bounce bleibt das endgültigere Signal.
+      //
+      // 'delayed' ist der wichtige Fall: bisher blieb so eine Mail auf 'sent'
+      // stehen und war im UI nicht von einem echten Fehlschlag zu
+      // unterscheiden, obwohl Resend noch selbst weiterversucht.
+      await db.run(sql`
+        UPDATE newsletter_recipients
+        SET status = ${event}
+        WHERE id = ${recipient.id}
+          AND status IN ('sent', 'delayed')
+      `)
+      break
+    }
   }
 }
 
@@ -408,6 +560,12 @@ export async function hasClickedNewsletterLink(
     JOIN newsletter_sends s ON s.id = lc.send_id
     WHERE s.site_id = ${siteId}
       AND r.email = ${email}
+      -- Weder ein Scanner noch eine Abmeldung darf eine Automation in den
+      -- Ja-Pfad schicken. Gerade beim Abmeldeklick wäre das grotesk: die
+      -- Automation würde ausgerechnet dem hinterherlaufen, der gerade
+      -- gegangen ist.
+      AND lc.is_bot = 0
+      AND lc.is_unsubscribe = 0
       AND (${since} IS NULL OR lc.clicked_at >= ${since})
       AND (${urlContains} IS NULL OR lc.url LIKE '%' || ${urlContains} || '%')
     LIMIT 1
@@ -501,9 +659,13 @@ export async function updateRecipientResendId(sendId: number, email: string, res
 
 export async function getLinkClicksForSend(sendId: number): Promise<LinkClickStats[]> {
   const db = getDb()
+  // Scanner-Klicks bleiben draussen: sie sagen nichts über das Interesse an
+  // einem Link aus, verzerren aber die Rangfolge (ein Scanner klickt jeden
+  // Link genau einmal). Abmeldeklicks bleiben sichtbar — dass sich jemand über
+  // den Link abgemeldet hat, ist eine echte und interessante Information.
   const rows = await db.run(sql`
     SELECT url, COUNT(*) as click_count, COUNT(DISTINCT recipient_id) as unique_clickers
-    FROM newsletter_link_clicks WHERE send_id = ${sendId}
+    FROM newsletter_link_clicks WHERE send_id = ${sendId} AND is_bot = 0
     GROUP BY url ORDER BY click_count DESC
   `)
   return (rows.rows ?? []).map((r) => ({

@@ -17,6 +17,7 @@ const { getDb } = await import('@/lib/db')
 const { migrate } = await import('drizzle-orm/libsql/migrator')
 const {
   updateRecipientEvent, isPermanentBounce, PERMANENT_BOUNCE_TYPE, hasClickedNewsletterLink,
+  isUnsubscribeUrl,
 } = await import('@/lib/newsletter-sends')
 const { bounceMetadata } = await import('@/lib/newsletter-bounces')
 
@@ -68,6 +69,11 @@ async function recipient(resendId: string) {
 
 const T = '2026-08-06T06:34:57.885Z'
 
+/** Zeitstempel `ms` Millisekunden nach T — für die Scanner-Fenster-Tests. */
+function at(ms: number): string {
+  return new Date(new Date(T).getTime() + ms).toISOString()
+}
+
 beforeAll(async () => {
   await migrate(db, { migrationsFolder: 'drizzle' })
 })
@@ -85,26 +91,150 @@ describe('updateRecipientEvent — Klick-Zählung', () => {
   })
 
   it('zählt Folgeklicks auf der Empfängerzeile, aber nicht im Aggregat', async () => {
-    await updateRecipientEvent('resend-0', 'clicked', T, { click_url: 'https://example.com/a' })
-    await updateRecipientEvent('resend-0', 'clicked', T, { click_url: 'https://example.com/b' })
-    await updateRecipientEvent('resend-0', 'clicked', T, { click_url: 'https://example.com/c' })
+    // Zeitlich auseinander — so klickt ein Mensch, der die Mail nochmal aufmacht.
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(60_000), { click_url: 'https://example.com/b' })
+    await updateRecipientEvent('resend-0', 'clicked', at(300_000), { click_url: 'https://example.com/c' })
 
     expect((await sendCounters()).clicked_count).toBe(1)
     expect((await recipient('resend-0')).click_count).toBe(3)
   })
 
   it('zählt auch bei gleichzeitigen Klick-Webhooks nur einen Klicker', async () => {
-    // Das ist der reale Fall: ein Link-Scanner ruft mehrere Links im selben
-    // Millisekundenfenster ab, Resend feuert die Webhooks parallel. Vorher
-    // lasen alle drei click_count = 0 und erhöhten clicked_count auf 3.
+    // Derselbe Link mehrfach, parallel zugestellt — etwa weil der Empfänger
+    // schnell zweimal getippt hat. Anders als beim Scanner-Burst bleibt das
+    // Engagement, nur der Klicker darf nicht mehrfach zählen.
     await Promise.all([
-      updateRecipientEvent('resend-0', 'clicked', T, { click_url: 'https://example.com/a' }),
-      updateRecipientEvent('resend-0', 'clicked', T, { click_url: 'https://example.com/b' }),
-      updateRecipientEvent('resend-0', 'clicked', T, { click_url: 'https://example.com/c' }),
+      updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' }),
+      updateRecipientEvent('resend-0', 'clicked', at(400), { click_url: 'https://example.com/a' }),
+      updateRecipientEvent('resend-0', 'clicked', at(900), { click_url: 'https://example.com/a' }),
     ])
 
     expect((await sendCounters()).clicked_count).toBe(1)
     expect((await recipient('resend-0')).click_count).toBe(3)
+  })
+
+  it('ignoriert eine erneut zugestellte Webhook-Meldung', async () => {
+    // Resend stellt erneut zu, wenn unsere Antwort nicht 200 war. Gleicher
+    // Empfänger, gleiche URL, gleiche Millisekunde = dasselbe Ereignis.
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+
+    expect((await recipient('resend-0')).click_count).toBe(1)
+    expect((await sendCounters()).clicked_count).toBe(1)
+  })
+})
+
+describe('updateRecipientEvent — Klicks, die kein Engagement sind', () => {
+  it('wertet einen Scanner-Burst nicht als Klick', async () => {
+    // Drei verschiedene Links in 106 ms — exakt das Muster von
+    // marek.rabe@rabenet.com im Versand vom 06.08.
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(8), { click_url: 'https://example.com/b' })
+    await updateRecipientEvent('resend-0', 'clicked', at(106), { click_url: 'https://example.com/c' })
+
+    expect((await sendCounters()).clicked_count).toBe(0)
+    expect((await recipient('resend-0')).click_count).toBe(0)
+    // Der Status darf nicht auf 'clicked' hängenbleiben.
+    expect((await recipient('resend-0')).status).toBe('sent')
+  })
+
+  it('erfasst Scanner-Klicks trotzdem, statt sie wegzuwerfen', async () => {
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(8), { click_url: 'https://example.com/b' })
+    await updateRecipientEvent('resend-0', 'clicked', at(106), { click_url: 'https://example.com/c' })
+
+    const rows = await db.run(sql`SELECT is_bot FROM newsletter_link_clicks WHERE recipient_id = (SELECT id FROM newsletter_recipients WHERE resend_email_id = 'resend-0')`)
+    expect(rows.rows.length).toBe(3)
+    expect(rows.rows.every((r) => r.is_bot === 1)).toBe(true)
+  })
+
+  it('hält drei Klicks auf DIESELBE URL für echt', async () => {
+    // Die Schwelle zählt verschiedene URLs. Mehrfach derselbe Link ist
+    // menschliches Verhalten und darf nicht als Scanner gelten.
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(8), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(106), { click_url: 'https://example.com/a' })
+
+    expect((await sendCounters()).clicked_count).toBe(1)
+    expect((await recipient('resend-0')).click_count).toBe(3)
+  })
+
+  it('hält zwei schnelle Klicks auf verschiedene Links für echt', async () => {
+    // Bewusst unter der Schwelle: lieber einen Scanner übersehen als einen
+    // echten Leser als Bot abstempeln.
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/a' })
+    await updateRecipientEvent('resend-0', 'clicked', at(50), { click_url: 'https://example.com/b' })
+
+    expect((await sendCounters()).clicked_count).toBe(1)
+    expect((await recipient('resend-0')).click_count).toBe(2)
+  })
+
+  it('wertet einen Abmeldeklick nicht als Engagement', async () => {
+    await updateRecipientEvent('resend-0', 'clicked', at(0), {
+      click_url: 'https://newsletter.kokomo.house/unsubscribe?token=abc',
+    })
+
+    expect((await sendCounters()).clicked_count).toBe(0)
+    expect((await recipient('resend-0')).click_count).toBe(0)
+  })
+
+  it('zählt den Rest weiter, wenn nur der Abmeldeklick wegfällt', async () => {
+    await updateRecipientEvent('resend-0', 'clicked', at(0), { click_url: 'https://example.com/artikel' })
+    await updateRecipientEvent('resend-0', 'clicked', at(90_000), {
+      click_url: 'https://newsletter.kokomo.house/unsubscribe?token=abc',
+    })
+
+    expect((await sendCounters()).clicked_count).toBe(1)
+    expect((await recipient('resend-0')).click_count).toBe(1)
+  })
+})
+
+describe('isUnsubscribeUrl', () => {
+  it('erkennt Abmelde- und Einstellungslinks', () => {
+    expect(isUnsubscribeUrl('https://newsletter.kokomo.house/unsubscribe?token=abc')).toBe(true)
+    expect(isUnsubscribeUrl('https://example.com/ABMELDEN')).toBe(true)
+    expect(isUnsubscribeUrl('https://example.com/preferences')).toBe(true)
+  })
+
+  it('hält normale Artikel-Links auseinander', () => {
+    expect(isUnsubscribeUrl('https://www.kokomo.house/tiny-house/daemmung/')).toBe(false)
+    // Kein blindes Teilstring-Matching: das Wort darf nicht mitten im Slug stehen.
+    expect(isUnsubscribeUrl('https://www.kokomo.house/tiny-house/unsubscribed-leser/')).toBe(false)
+  })
+})
+
+describe('updateRecipientEvent — Zwischenstände', () => {
+  it('markiert eine verzögerte Zustellung als solche statt als Fehlschlag', async () => {
+    await updateRecipientEvent('resend-0', 'delayed', T)
+
+    expect((await recipient('resend-0')).status).toBe('delayed')
+    // Verzögert ist kein Bounce — die Bounce-Zahl darf sich nicht bewegen.
+    expect((await sendCounters()).bounced_count).toBe(0)
+  })
+
+  it('lässt aus einer verzögerten Mail eine zugestellte werden', async () => {
+    await updateRecipientEvent('resend-0', 'delayed', T)
+    await updateRecipientEvent('resend-0', 'delivered', T)
+
+    expect((await recipient('resend-0')).status).toBe('delivered')
+    expect((await sendCounters()).delivered_count).toBe(1)
+  })
+
+  it('dreht eine bereits zugestellte Mail nicht auf verzögert zurück', async () => {
+    await updateRecipientEvent('resend-0', 'delivered', T)
+    await updateRecipientEvent('resend-0', 'delayed', T)
+
+    expect((await recipient('resend-0')).status).toBe('delivered')
+  })
+
+  it('hält failed und suppressed auseinander', async () => {
+    await updateRecipientEvent('resend-0', 'failed', T)
+    expect((await recipient('resend-0')).status).toBe('failed')
+
+    await seedSend(['b@example.com'])
+    await updateRecipientEvent('resend-0', 'suppressed', T)
+    expect((await recipient('resend-0')).status).toBe('suppressed')
   })
 })
 
@@ -198,6 +328,20 @@ describe('hasClickedNewsletterLink', () => {
   it('trennt nach Site', async () => {
     await recordClick(CLICKED, T)
     expect(await hasClickedNewsletterLink('andere-site', 'a@example.com')).toBe(false)
+  })
+
+  it('springt nicht auf einen Abmeldeklick an', async () => {
+    // Sonst würde die Automation ausgerechnet dem hinterherlaufen, der sich
+    // gerade abgemeldet hat.
+    await recordClick('https://newsletter.kokomo.house/unsubscribe?token=abc', T)
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com')).toBe(false)
+  })
+
+  it('springt nicht auf einen Scanner-Burst an', async () => {
+    await recordClick('https://example.com/a', at(0))
+    await recordClick('https://example.com/b', at(8))
+    await recordClick('https://example.com/c', at(106))
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com')).toBe(false)
   })
 })
 

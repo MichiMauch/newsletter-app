@@ -31,13 +31,19 @@ describe('createConfirmToken / verifyConfirmToken', () => {
 
   it('rejects a token whose signature was tampered with', () => {
     const token = createConfirmToken('kokomo', 'tampered@example.com')
-    // Replace the last char with a deterministic *different* base64url char.
-    // (Flipping to a fixed letter previously caused a flake when the token
-    // happened to already end with that letter.)
-    const last = token[token.length - 1]
-    const replacement = last === 'A' ? 'B' : last === 'a' ? 'b' : 'A'
-    const flipped = token.slice(0, -1) + replacement
-    expect(flipped).not.toBe(token)
+
+    // Tamper at the BYTE level, not by swapping the last base64url character.
+    // Depending on the payload length the trailing characters carry only
+    // padding bits, which are discarded on decode — such a "tampered" token
+    // looks different but decodes to the exact same bytes and verifies just
+    // fine. Because the trailing bits depend on the HMAC, and the HMAC
+    // depends on the expiry second, that made this test fail on roughly every
+    // other run.
+    const raw = Buffer.from(token, 'base64url')
+    raw[raw.length - 1] ^= 0x01
+    const flipped = raw.toString('base64url')
+
+    expect(Buffer.from(flipped, 'base64url')).not.toEqual(Buffer.from(token, 'base64url'))
     const result = verifyConfirmToken(flipped)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toBe('invalid_signature')
