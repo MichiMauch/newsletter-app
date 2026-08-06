@@ -58,6 +58,17 @@ export const newsletterSubscribers = sqliteTable('newsletter_subscribers', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   confirmedAt: text('confirmed_at'),
   blockedAt: text('blocked_at'),
+  // WARUM gesperrt wurde. Ohne diese Spalte waren freiwillige Abmeldung, Hard
+  // Bounce und Spam-Beschwerde nicht auseinanderzuhalten — eine Abmelderate
+  // pro Versand, in jedem Mailing-Tool eine Kopfzahl, liess sich damit nicht
+  // berechnen.
+  blockedReason: text('blocked_reason')
+    .$type<'unsubscribed' | 'bounced' | 'complained' | 'suppressed' | 'admin'>(),
+  // Der Versand, dem die Sperre zugerechnet wird: der letzte, den diese
+  // Adresse vor der Sperre erhalten hat. Dieselbe Zuordnung nehmen Mailchimp
+  // und HubSpot vor. Hält nur den jeweils letzten Vorgang fest — wird jemand
+  // reaktiviert und meldet sich erneut ab, überschreibt das den alten Wert.
+  blockedSendId: integer('blocked_send_id'),
   // GDPR Art. 7.1 "Nachweis der Einwilligung": IP + UA at signup and again at
   // confirmation. Lets the operator prove the subscriber actively opted in if
   // a complaint arises. Nullable for legacy rows and bulk-import paths.

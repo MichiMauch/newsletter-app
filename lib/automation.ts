@@ -13,6 +13,7 @@ import {
   newsletterSubscribers,
 } from './schema'
 import { isPermanentBounce } from './newsletter-sends'
+import { blockSubscriberWithReason } from './newsletter-subscribers'
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -249,14 +250,14 @@ export async function updateAutomationSendEvent(
       // kommt. Vorher passierte das nur im Newsletter-Pfad — eine Automation
       // hätte eine tote Adresse endlos weiter angeschrieben.
       if (isPermanentBounce(extras?.bounce_type)) {
-        await blockSubscriber(siteId, email)
+        await blockSubscriberWithReason(siteId, email, 'bounced')
       }
       break
     case 'complained':
       await db.update(emailAutomationSends)
         .set({ status: 'complained', complainedAt: timestamp })
         .where(eq(emailAutomationSends.id, id))
-      await blockSubscriber(siteId, email)
+      await blockSubscriberWithReason(siteId, email, 'complained')
       break
   }
 }
@@ -281,17 +282,7 @@ export async function hasClickedAutomationEmail(enrollmentId: number): Promise<b
   return rows.length > 0
 }
 
-/** Sperrt eine aktive Adresse — site-genau, weil dieselbe Mail auf mehreren Sites liegen darf. */
-async function blockSubscriber(siteId: string, email: string): Promise<void> {
-  const db = getDb()
-  await db.update(newsletterSubscribers)
-    .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
-    .where(and(
-      eq(newsletterSubscribers.siteId, siteId),
-      eq(newsletterSubscribers.email, email),
-      eq(newsletterSubscribers.status, 'active'),
-    ))
-}
+
 
 // ─── Manual Enrollment ──────────────────────────────────────────────────
 

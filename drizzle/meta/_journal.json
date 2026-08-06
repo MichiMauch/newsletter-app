@@ -162,6 +162,13 @@
       "when": 1814020600000,
       "tag": "0022_automation_graph_sends",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1814020700000,
+      "tag": "0023_subscriber_block_reason",
+      "breakpoints": true
     }
   ]
 }

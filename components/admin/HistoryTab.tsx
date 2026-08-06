@@ -14,6 +14,7 @@ import type {
 } from './types'
 import { formatDate } from './types'
 import { formatOffset } from '@/lib/send-timeline'
+import { computeSendRates } from '@/lib/newsletter-sends'
 import { parseDbDate } from '@/lib/parse-db-date'
 import { useToast } from '../ui/ToastProvider'
 import { EngagementDot } from '../ui/EngagementIndicator'
@@ -205,21 +206,41 @@ export default function HistoryTab({
             <div className="glass-card rounded-xl p-6 text-center text-[var(--text-secondary)]">Laden…</div>
           ) : (
             <>
-              {/* Summary Cards */}
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                <div className="glass-card rounded-xl p-4 text-center">
-                  <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{selectedSend.delivered_count ?? 0}</div>
-                  <div className="mt-1 text-xs text-[var(--text-secondary)]">Zugestellt</div>
-                </div>
-                <div className="glass-card rounded-xl p-4 text-center">
-                  <div className="text-xl font-bold text-green-600 dark:text-green-400">{selectedSend.clicked_count ?? 0}</div>
-                  <div className="mt-1 text-xs text-[var(--text-secondary)]">Geklickt</div>
-                </div>
-                <div className="glass-card rounded-xl p-4 text-center">
-                  <div className={`text-xl font-bold ${(selectedSend.bounced_count ?? 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>{selectedSend.bounced_count ?? 0}</div>
-                  <div className="mt-1 text-xs text-[var(--text-secondary)]">Bounced</div>
-                </div>
-              </div>
+              {/* Kennzahlen: Zahl UND Rate. Die absolute Zahl allein sagt wenig,
+                  sobald die Empfängerzahl schwankt — "11 Klicks" heisst bei 64
+                  Empfängern etwas anderes als bei 640. Die Bezugsgrösse steht
+                  jeweils dabei, damit niemand raten muss, worauf sich die
+                  Prozentzahl bezieht. */}
+              {(() => {
+                const rates = computeSendRates({
+                  recipient_count: selectedSend.recipient_count,
+                  delivered_count: selectedSend.delivered_count ?? 0,
+                  clicked_count: selectedSend.clicked_count ?? 0,
+                  bounced_count: selectedSend.bounced_count ?? 0,
+                  complained_count: selectedSend.complained_count ?? 0,
+                  unsubscribed_count: selectedSend.unsubscribed_count ?? 0,
+                })
+                const cards = [
+                  { label: 'Zugestellt', basis: 'von allen Empfängern', value: selectedSend.delivered_count ?? 0, rate: rates.delivery_rate, cls: 'text-blue-600 dark:text-blue-400' },
+                  { label: 'Geklickt', basis: 'der Zugestellten', value: selectedSend.clicked_count ?? 0, rate: rates.click_rate, cls: 'text-green-600 dark:text-green-400' },
+                  { label: 'Bounced', basis: 'von allen Empfängern', value: selectedSend.bounced_count ?? 0, rate: rates.bounce_rate, cls: (selectedSend.bounced_count ?? 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]' },
+                  { label: 'Abgemeldet', basis: 'der Zugestellten', value: selectedSend.unsubscribed_count ?? 0, rate: rates.unsubscribe_rate, cls: (selectedSend.unsubscribed_count ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-[var(--text)]' },
+                ]
+                return (
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    {cards.map((c) => (
+                      <div key={c.label} className="glass-card rounded-xl p-4 text-center">
+                        <div className={`text-xl font-bold ${c.cls}`}>
+                          {c.value}
+                          <span className="ml-1.5 text-sm font-semibold opacity-70">{c.rate}%</span>
+                        </div>
+                        <div className="mt-1 text-xs text-[var(--text-secondary)]">{c.label}</div>
+                        <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">{c.basis}</div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
 
               {/* Zeitachse: Versand und Klicks nebeneinander. Direkt unter den
                   Summenkacheln, weil sie die Frage beantwortet, die sich beim

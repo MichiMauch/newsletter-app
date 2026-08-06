@@ -35,6 +35,7 @@ export interface NewsletterSend {
   scheduled_for?: string | null
   status?: string
   recipient_count: number
+  unsubscribed_count?: number
   delivered_count?: number
   clicked_count?: number
   bounced_count?: number

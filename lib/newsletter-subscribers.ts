@@ -84,6 +84,8 @@ export async function createSubscriber(
           status: 'pending',
           token,
           blockedAt: null,
+          blockedReason: null,
+          blockedSendId: null,
           subscribedIp,
           subscribedUserAgent,
           confirmedAt: null,
@@ -204,6 +206,25 @@ export async function confirmSubscriberByEmail(
  * im Unsubscribe-Flow oder "Komplett abmelden" im Subscription Center).
  * Webhooks (Bounce/Complaint) benutzen blockSubscriberById ohne Membership-Drop.
  */
+/**
+ * Letzter Versand, den dieser Abonnent erhalten hat — die Bezugsgrösse für die
+ * Zurechnung einer Abmeldung. NULL, wenn die Person nie einen Versand bekam
+ * (etwa Abmeldung direkt nach der Bestätigung).
+ */
+async function lastSendIdFor(subscriberId: number): Promise<number | null> {
+  const db = getDb()
+  const rows = await db.run(sql`
+    SELECT ns.id
+    FROM newsletter_recipients nr
+    JOIN newsletter_sends ns ON ns.id = nr.send_id
+    JOIN newsletter_subscribers s ON s.email = nr.email AND s.site_id = ns.site_id
+    WHERE s.id = ${subscriberId} AND ns.status = 'sent'
+    ORDER BY ns.sent_at DESC
+    LIMIT 1
+  `)
+  return (rows.rows?.[0]?.id as number | undefined) ?? null
+}
+
 export async function blockSubscriberCompletely(token: string): Promise<boolean> {
   const db = getDb()
   const rows = await db.select({ id: newsletterSubscribers.id })
@@ -212,9 +233,17 @@ export async function blockSubscriberCompletely(token: string): Promise<boolean>
     .limit(1)
   const sub = rows[0]
   if (!sub) return false
+  // Der Versand, dem die Abmeldung zugerechnet wird — ohne ihn gäbe es keine
+  // Abmelderate pro Kampagne.
+  const sendId = await lastSendIdFor(sub.id)
   await db.transaction(async (tx) => {
     await tx.update(newsletterSubscribers)
-      .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
+      .set({
+        status: 'blocked',
+        blockedAt: sql`datetime('now')`,
+        blockedReason: 'unsubscribed',
+        blockedSendId: sendId,
+      })
       .where(eq(newsletterSubscribers.id, sub.id))
     await tx.delete(subscriberListMembers)
       .where(eq(subscriberListMembers.subscriberId, sub.id))
@@ -226,11 +255,55 @@ export async function blockSubscriberCompletely(token: string): Promise<boolean>
  * Versorgt einen Subscriber nur status-seitig mit 'blocked' (z.B. Bounce-Pfad).
  * Mitgliedschaften bleiben unveraendert, damit Reaktivierung alles zurueckbringt.
  */
-export async function blockSubscriberById(id: number): Promise<void> {
+export async function blockSubscriberById(id: number, reason: BlockReason = 'admin'): Promise<void> {
   const db = getDb()
   await db.update(newsletterSubscribers)
-    .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
+    .set({ status: 'blocked', blockedAt: sql`datetime('now')`, blockedReason: reason })
     .where(eq(newsletterSubscribers.id, id))
+}
+
+export type BlockReason = 'unsubscribed' | 'bounced' | 'complained' | 'suppressed' | 'admin'
+
+/**
+ * Sperrt eine aktive Adresse und hält fest, WARUM und WEGEN WELCHEM VERSAND.
+ *
+ * Einziger Weg, über den Bounce-, Beschwerde- und Abmeldepfade sperren sollten
+ * — vorher setzte jeder Aufrufer den Status selbst, und der Grund ging dabei
+ * verloren. Zugerechnet wird der letzte Versand, den diese Adresse vor der
+ * Sperre erhalten hat; dieselbe Zuordnung nehmen Mailchimp und HubSpot vor.
+ *
+ * Site-genau, weil dieselbe Adresse laut Schema auf mehreren Sites liegen darf.
+ * Wirkt nur auf aktive Adressen — eine bereits gesperrte behält ihren
+ * ursprünglichen Grund.
+ */
+export async function blockSubscriberWithReason(
+  siteId: string,
+  email: string,
+  reason: BlockReason,
+): Promise<void> {
+  const db = getDb()
+  const lastSend = await db.run(sql`
+    SELECT ns.id
+    FROM newsletter_recipients nr
+    JOIN newsletter_sends ns ON ns.id = nr.send_id
+    WHERE nr.email = ${email} AND ns.site_id = ${siteId} AND ns.status = 'sent'
+    ORDER BY ns.sent_at DESC
+    LIMIT 1
+  `)
+  const sendId = (lastSend.rows?.[0]?.id as number | undefined) ?? null
+
+  await db.update(newsletterSubscribers)
+    .set({
+      status: 'blocked',
+      blockedAt: sql`datetime('now')`,
+      blockedReason: reason,
+      blockedSendId: sendId,
+    })
+    .where(and(
+      eq(newsletterSubscribers.siteId, siteId),
+      eq(newsletterSubscribers.email, email),
+      eq(newsletterSubscribers.status, 'active'),
+    ))
 }
 
 /**
@@ -260,6 +333,7 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
   const rows = await db.run(sql`
     SELECT
       s.id, s.site_id, s.email, s.status, s.token, s.created_at, s.confirmed_at, s.blocked_at,
+      s.blocked_reason, s.blocked_send_id,
       s.subscribed_ip, s.subscribed_user_agent, s.confirmed_ip, s.confirmed_user_agent,
       s.first_name,
       (
@@ -278,6 +352,8 @@ export async function getAllSubscribersEnriched(siteId: string): Promise<Subscri
     siteId: r.site_id as string,
     email: r.email as string,
     status: r.status as Subscriber['status'],
+    blockedReason: (r.blocked_reason as Subscriber['blockedReason']) ?? null,
+    blockedSendId: (r.blocked_send_id as number | null) ?? null,
     token: r.token as string,
     createdAt: r.created_at as string,
     confirmedAt: (r.confirmed_at as string | null) ?? null,
@@ -317,9 +393,17 @@ export async function unsubscribeById(id: number): Promise<void> {
   // Mitgliedschaften droppen, damit die UI konsistent zum User-initiierten
   // Komplett-Abmelden bleibt.
   const db = getDb()
+  const sendId = await lastSendIdFor(id)
   await db.transaction(async (tx) => {
     await tx.update(newsletterSubscribers)
-      .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
+      .set({
+        status: 'blocked',
+        blockedAt: sql`datetime('now')`,
+        // Vom Admin ausgelöst, aber im Auftrag des Abonnenten — zählt als
+        // Abmeldung, nicht als administrative Bereinigung.
+        blockedReason: 'unsubscribed',
+        blockedSendId: sendId,
+      })
       .where(eq(newsletterSubscribers.id, id))
     await tx.delete(subscriberListMembers)
       .where(eq(subscriberListMembers.subscriberId, id))

@@ -1,7 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { getDb } from './db'
+import { blockSubscriberWithReason } from './newsletter-subscribers'
 import {
-  newsletterSubscribers,
   newsletterSends,
   newsletterRecipients,
   newsletterLinkClicks,
@@ -160,6 +160,55 @@ export interface NewsletterSendStats extends NewsletterSend {
   clicked_count: number
   bounced_count: number
   complained_count: number
+  /**
+   * Abmeldungen, die diesem Versand zugerechnet werden. Nicht gespeichert,
+   * sondern aus newsletter_subscribers abgeleitet — dort hält blocked_send_id
+   * fest, nach welchem Versand jemand gegangen ist.
+   */
+  unsubscribed_count: number
+}
+
+/**
+ * Kennzahlen eines Versands als Raten.
+ *
+ * Absolute Zahlen allein sagen wenig, sobald die Empfängerzahl schwankt: "11
+ * Klicks" ist bei 64 Empfängern etwas anderes als bei 640. Mailchimp und
+ * HubSpot führen deshalb beides nebeneinander.
+ *
+ * Die Nenner sind bewusst unterschiedlich gewählt:
+ *   - Zustellrate und Bounce-Rate gegen ALLE Empfänger — es geht darum, wie
+ *     viel überhaupt ankam.
+ *   - Klick- und Abmelderate gegen die ZUGESTELLTEN — wer nichts bekommen hat,
+ *     kann weder klicken noch sich abmelden.
+ */
+export interface SendRates {
+  delivery_rate: number
+  click_rate: number
+  bounce_rate: number
+  unsubscribe_rate: number
+  complaint_rate: number
+}
+
+function rate(part: number, total: number): number {
+  if (total <= 0) return 0
+  return Math.round((part / total) * 1000) / 10
+}
+
+export function computeSendRates(send: {
+  recipient_count: number
+  delivered_count: number
+  clicked_count: number
+  bounced_count: number
+  complained_count: number
+  unsubscribed_count?: number
+}): SendRates {
+  return {
+    delivery_rate: rate(send.delivered_count, send.recipient_count),
+    click_rate: rate(send.clicked_count, send.delivered_count),
+    bounce_rate: rate(send.bounced_count, send.recipient_count),
+    unsubscribe_rate: rate(send.unsubscribed_count ?? 0, send.delivered_count),
+    complaint_rate: rate(send.complained_count, send.delivered_count),
+  }
 }
 
 export interface LinkClickStats {
@@ -532,26 +581,14 @@ export async function updateRecipientEvent(
       if (!bounced) break
 
       if (isPermanentBounce(metadata?.bounce_type)) {
-        await db.update(newsletterSubscribers)
-          .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
-          .where(and(
-            eq(newsletterSubscribers.siteId, recipient.siteId),
-            eq(newsletterSubscribers.email, recipient.email),
-            eq(newsletterSubscribers.status, 'active'),
-          ))
+        await blockSubscriberWithReason(recipient.siteId, recipient.email, 'bounced')
       } else {
         // Soft/unbekannter Bounce: sperren, sobald genug Versuche in Folge
         // gescheitert sind. Der Zeitbezug ist bewusst weg — siehe
         // SOFT_BOUNCE_STREAK.
         const streak = await getBounceStreak(recipient.siteId, recipient.email)
         if (streakWarrantsBlock(streak)) {
-          await db.update(newsletterSubscribers)
-            .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
-            .where(and(
-              eq(newsletterSubscribers.siteId, recipient.siteId),
-              eq(newsletterSubscribers.email, recipient.email),
-              eq(newsletterSubscribers.status, 'active'),
-            ))
+          await blockSubscriberWithReason(recipient.siteId, recipient.email, 'bounced')
         }
       }
       break
@@ -564,13 +601,7 @@ export async function updateRecipientEvent(
           AND status NOT IN ('bounced', 'complained')
       `, 'complainedCount')
       if (!complained) break
-      await db.update(newsletterSubscribers)
-        .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
-        .where(and(
-          eq(newsletterSubscribers.siteId, recipient.siteId),
-          eq(newsletterSubscribers.email, recipient.email),
-          eq(newsletterSubscribers.status, 'active'),
-        ))
+      await blockSubscriberWithReason(recipient.siteId, recipient.email, 'complained')
       break
     }
     case 'delayed':
@@ -602,13 +633,7 @@ export async function updateRecipientEvent(
       // Bounce-Serie nie, und wir würden sie bei jedem Versand erneut
       // anschreiben.
       if (event === 'suppressed' && (changed.rowsAffected ?? 0) > 0) {
-        await db.update(newsletterSubscribers)
-          .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
-          .where(and(
-            eq(newsletterSubscribers.siteId, recipient.siteId),
-            eq(newsletterSubscribers.email, recipient.email),
-            eq(newsletterSubscribers.status, 'active'),
-          ))
+        await blockSubscriberWithReason(recipient.siteId, recipient.email, 'suppressed')
       }
       break
     }
@@ -671,15 +696,28 @@ export async function getRecipientByResendId(resendEmailId: string): Promise<{ e
 
 export async function getNewsletterSendsWithStats(siteId: string): Promise<NewsletterSendStats[]> {
   const db = getDb()
-  const rows = await db.select().from(newsletterSends)
-    .where(eq(newsletterSends.siteId, siteId))
-    .orderBy(sql`COALESCE(${newsletterSends.scheduledFor}, ${newsletterSends.sentAt}) DESC`)
-  return rows.map((r) => ({
-    id: r.id, site_id: r.siteId, post_slug: r.postSlug, post_title: r.postTitle,
-    subject: r.subject, preheader: r.preheader, sent_at: r.sentAt, scheduled_for: r.scheduledFor,
-    recipient_count: r.recipientCount, status: r.status,
-    delivered_count: r.deliveredCount, clicked_count: r.clickedCount,
-    bounced_count: r.bouncedCount, complained_count: r.complainedCount,
+  // Abmeldungen liegen nicht als Zähler auf dem Versand, sondern werden über
+  // blocked_send_id zugerechnet — so bleibt die Zahl auch dann richtig, wenn
+  // jemand später reaktiviert wird und wieder geht.
+  const rows = await db.run(sql`
+    SELECT ns.*,
+      (SELECT COUNT(*) FROM newsletter_subscribers s
+       WHERE s.site_id = ns.site_id
+         AND s.blocked_send_id = ns.id
+         AND s.blocked_reason = 'unsubscribed') AS unsubscribed_count
+    FROM newsletter_sends ns
+    WHERE ns.site_id = ${siteId}
+    ORDER BY COALESCE(ns.scheduled_for, ns.sent_at) DESC
+  `)
+  return (rows.rows ?? []).map((r) => ({
+    id: r.id as number, site_id: r.site_id as string,
+    post_slug: r.post_slug as string, post_title: r.post_title as string,
+    subject: r.subject as string, preheader: (r.preheader as string | null) ?? null,
+    sent_at: r.sent_at as string, scheduled_for: (r.scheduled_for as string | null) ?? null,
+    recipient_count: r.recipient_count as number, status: r.status as string,
+    delivered_count: r.delivered_count as number, clicked_count: r.clicked_count as number,
+    bounced_count: r.bounced_count as number, complained_count: r.complained_count as number,
+    unsubscribed_count: (r.unsubscribed_count as number) ?? 0,
   }))
 }
 
