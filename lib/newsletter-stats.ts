@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { getDb } from './db'
+import { TRACKED_SENDS } from './newsletter-sends'
 
 export interface SendTrend {
   id: number
@@ -18,11 +19,14 @@ export interface SubscriberGrowth {
 
 export async function getNewsletterTrends(siteId: string): Promise<SendTrend[]> {
   const db = getDb()
+  // Klickrate gegen delivered_count, Bounce-Rate gegen recipient_count — gleiche
+  // Definition wie in getOverallNewsletterStats, sonst widersprechen sich die
+  // KPI-Kacheln und die Trendkurve darunter.
   const rows = await db.run(sql`
     SELECT id, subject, sent_at, recipient_count,
-      CASE WHEN recipient_count > 0 THEN ROUND(CAST(clicked_count AS REAL) / recipient_count * 100, 1) ELSE 0 END as click_rate,
+      CASE WHEN delivered_count > 0 THEN ROUND(CAST(clicked_count AS REAL) / delivered_count * 100, 1) ELSE 0 END as click_rate,
       CASE WHEN recipient_count > 0 THEN ROUND(CAST(bounced_count AS REAL) / recipient_count * 100, 1) ELSE 0 END as bounce_rate
-    FROM newsletter_sends WHERE site_id = ${siteId} ORDER BY sent_at ASC
+    FROM newsletter_sends WHERE site_id = ${siteId} AND ${TRACKED_SENDS} ORDER BY sent_at ASC
   `)
   return (rows.rows ?? []).map((r) => ({
     id: r.id as number, subject: r.subject as string, sent_at: r.sent_at as string,

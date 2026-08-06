@@ -1,6 +1,7 @@
 import { Webhook } from 'svix'
 import * as Sentry from '@sentry/nextjs'
 import { updateRecipientEvent, getRecipientByResendId } from '@/lib/newsletter'
+import { bounceMetadata, type ResendBounce } from '@/lib/newsletter-bounces'
 import { updateAutomationSendEvent } from '@/lib/automation'
 import { enrollOnLinkClick } from '@/lib/graph-automation'
 import { applyClickTagging } from '@/lib/auto-tag'
@@ -11,7 +12,7 @@ interface ResendWebhookPayload {
   created_at: string
   data: {
     email_id: string
-    bounce?: { bounce_type?: string; sub_type?: string; message?: string }
+    bounce?: ResendBounce
     click?: { link?: string }
   }
 }
@@ -69,11 +70,7 @@ export async function POST(request: Request) {
         await updateRecipientEvent(emailId, 'clicked', created_at, { click_url: data.click?.link })
         break
       case 'email.bounced':
-        await updateRecipientEvent(emailId, 'bounced', created_at, {
-          bounce_type: data.bounce?.bounce_type,
-          bounce_sub_type: data.bounce?.sub_type,
-          bounce_message: data.bounce?.message,
-        })
+        await updateRecipientEvent(emailId, 'bounced', created_at, bounceMetadata(data.bounce))
         break
       case 'email.complained':
         await updateRecipientEvent(emailId, 'complained', created_at)
@@ -82,11 +79,7 @@ export async function POST(request: Request) {
 
     const automationEvent = type.replace('email.', '') as 'delivered' | 'clicked' | 'bounced' | 'complained'
     if (['delivered', 'clicked', 'bounced', 'complained'].includes(automationEvent)) {
-      await updateAutomationSendEvent(emailId, automationEvent, created_at, {
-        bounce_type: data.bounce?.bounce_type,
-        bounce_sub_type: data.bounce?.sub_type,
-        bounce_message: data.bounce?.message,
-      })
+      await updateAutomationSendEvent(emailId, automationEvent, created_at, bounceMetadata(data.bounce))
     }
 
     // Click events: fire link_clicked trigger and run auto-tagging

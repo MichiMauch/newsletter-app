@@ -402,7 +402,9 @@ export default function HistoryTab({
                 <tbody>
                   {visibleSends.map((s) => {
                     const hasTracking = (s.delivered_count ?? 0) > 0 || (s.bounced_count ?? 0) > 0
-                    const clickRate = hasTracking && s.recipient_count > 0 ? Math.round(((s.clicked_count ?? 0) / s.recipient_count) * 100) : null
+                    // Klickrate gegen die zugestellten Mails, nicht gegen alle Empfänger —
+                    // sonst drücken Bounces die Rate, obwohl niemand klicken konnte.
+                    const clickRate = hasTracking && (s.delivered_count ?? 0) > 0 ? Math.round(((s.clicked_count ?? 0) / (s.delivered_count ?? 0)) * 100) : null
                     const isCancelled = s.status === 'cancelled'
                     return (
                       <tr key={s.id} onClick={() => loadSendDetail(s)} className={`cursor-pointer border-b border-[var(--border)] last:border-0 transition-colors hover:bg-[var(--bg-secondary)] ${isCancelled ? 'opacity-60' : ''}`}>

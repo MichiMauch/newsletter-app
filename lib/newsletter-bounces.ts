@@ -1,6 +1,39 @@
 import { sql } from 'drizzle-orm'
 import { getDb } from './db'
 
+/**
+ * Das Bounce-Objekt, wie Resend es im Webhook und über GET /emails/:id liefert.
+ * Die Feldnamen sind `type`/`subType` — NICHT `bounce_type`/`sub_type`, wie der
+ * Webhook-Handler lange angenommen hat. Gegengeprüft an einem echten Event:
+ *   {"message": "…", "type": "Transient", "subType": "General",
+ *    "diagnosticCode": ["smtp; 554 5.7.1 Relay access denied"]}
+ * `type` ist 'Permanent' | 'Transient' | 'Undetermined'.
+ */
+export interface ResendBounce {
+  type?: string
+  subType?: string
+  message?: string
+  diagnosticCode?: string[]
+}
+
+/**
+ * Übersetzt Resends Bounce-Objekt in die interne Metadaten-Form.
+ *
+ * Der `diagnosticCode` — die Rohantwort des empfangenden Mailservers, also die
+ * eigentlich nützliche Information beim Debuggen — wird an die Message
+ * angehängt statt in einer eigenen Spalte abgelegt. Damit steht er ohne
+ * Migration sofort im Bounce-Tooltip des Admin-UIs.
+ */
+export function bounceMetadata(bounce: ResendBounce | undefined) {
+  if (!bounce) return undefined
+  const diagnostic = bounce.diagnosticCode?.filter(Boolean).join(' · ')
+  return {
+    bounce_type: bounce.type,
+    bounce_sub_type: bounce.subType,
+    bounce_message: [bounce.message, diagnostic].filter(Boolean).join(' — ') || undefined,
+  }
+}
+
 export interface BounceBreakdownRow {
   bounce_type: string | null
   bounce_sub_type: string | null

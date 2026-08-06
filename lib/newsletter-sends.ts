@@ -8,6 +8,33 @@ import {
   newsletterSendVariants,
 } from './schema'
 
+/**
+ * Ein Send zählt für Reporting-Kennzahlen nur, wenn Resend uns dazu überhaupt
+ * Webhook-Events geliefert hat. Das schliesst zwei Sorten Rauschen aus, ohne
+ * eine willkürliche Mindestgrösse zu erfinden:
+ *   - abgebrochene Versände (status = 'cancelled', nie zugestellt)
+ *   - Alt-Sends von vor der Webhook-Integration (alle Zähler auf 0)
+ * Ein echter Versand hat immer mindestens eine Zustellung oder einen Bounce —
+ * dieselbe Bedingung wie der `hasTracking`-Gate in der History-Tabelle.
+ */
+export const TRACKED_SENDS = sql`status = 'sent' AND (delivered_count > 0 OR bounced_count > 0)`
+
+/**
+ * Resend klassifiziert Bounces als 'Permanent' | 'Transient' | 'Undetermined'
+ * (Feld `data.bounce.type` im Webhook, verifiziert an einem echten Event:
+ * {type: 'Transient', subType: 'General', diagnosticCode: [...]}).
+ *
+ * Vorher las der Webhook `data.bounce.bounce_type` — ein Feld, das Resend gar
+ * nicht schickt — und verglich zusätzlich gegen 'hard'. Beides ging ins Leere:
+ * alle Bounces landeten ohne Typ in der DB und kein einziger Hard Bounce wurde
+ * je automatisch gesperrt.
+ */
+export const PERMANENT_BOUNCE_TYPE = 'Permanent'
+
+export function isPermanentBounce(bounceType: string | null | undefined): boolean {
+  return bounceType?.toLowerCase() === PERMANENT_BOUNCE_TYPE.toLowerCase()
+}
+
 export interface NewsletterSend {
   id: number
   site_id: string
@@ -203,6 +230,31 @@ export async function updateRecipientEvent(
   const recipient = existing[0]
   if (recipient.status === 'bounced' || recipient.status === 'complained') return
 
+  /**
+   * Zählt die Aggregate in newsletter_sends nur hoch, wenn das UPDATE auf der
+   * Empfängerzeile wirklich etwas verändert hat.
+   *
+   * Vorher wurde erst gelesen (`recipient.clickCount === 0`) und danach
+   * geschrieben — bei Link-Scannern, die mehrere Links im selben Millisekunden-
+   * fenster abrufen, laufen die Webhooks parallel, beide lesen 0 und beide
+   * zählen hoch. So ist clicked_count auseinandergelaufen (Send 12: 12 statt 11,
+   * Send 7: 20 statt 19). Der Guard steckt jetzt im WHERE des UPDATEs, die
+   * Entscheidung fällt also in der Datenbank statt in der Applikation.
+   */
+  async function bumpIfChanged(
+    updateStatement: ReturnType<typeof sql>,
+    field: 'deliveredCount' | 'clickedCount' | 'bouncedCount' | 'complainedCount',
+  ): Promise<boolean> {
+    const result = await db.run(updateStatement)
+    if ((result.rowsAffected ?? 0) === 0) return false
+    const sendColumn = newsletterSends[field]
+    await db.update(newsletterSends)
+      .set({ [field]: sql`${sendColumn} + 1` })
+      .where(eq(newsletterSends.id, recipient.sendId))
+    await bumpVariant(field)
+    return true
+  }
+
   async function bumpVariant(field: 'deliveredCount' | 'clickedCount' | 'bouncedCount' | 'complainedCount') {
     if (!recipient.variantLabel) return
     const column = newsletterSendVariants[field]
@@ -216,31 +268,35 @@ export async function updateRecipientEvent(
 
   switch (event) {
     case 'delivered': {
-      const isFirst = recipient.status === 'sent'
-      await db.run(sql`
+      // `delivered_at IS NULL` ist der verlässliche Erst-Zustellungs-Marker:
+      // status kann bereits 'clicked' sein, wenn der Klick-Webhook zuerst ankam.
+      await bumpIfChanged(sql`
         UPDATE newsletter_recipients
         SET status = CASE WHEN status = 'sent' THEN 'delivered' ELSE status END,
-            delivered_at = COALESCE(delivered_at, ${timestamp})
+            delivered_at = ${timestamp}
         WHERE id = ${recipient.id}
-      `)
-      if (isFirst) {
-        await db.update(newsletterSends)
-          .set({ deliveredCount: sql`${newsletterSends.deliveredCount} + 1` })
-          .where(eq(newsletterSends.id, recipient.sendId))
-        await bumpVariant('deliveredCount')
-      }
+          AND delivered_at IS NULL
+          AND status NOT IN ('bounced', 'complained')
+      `, 'deliveredCount')
       break
     }
     case 'clicked': {
-      const isFirstClick = recipient.clickCount === 0
-      await db.update(newsletterRecipients)
-        .set({ status: 'clicked', clickedAt: sql`COALESCE(${newsletterRecipients.clickedAt}, ${timestamp})`, clickCount: sql`${newsletterRecipients.clickCount} + 1` })
-        .where(eq(newsletterRecipients.id, recipient.id))
-      if (isFirstClick) {
-        await db.update(newsletterSends)
-          .set({ clickedCount: sql`${newsletterSends.clickedCount} + 1` })
-          .where(eq(newsletterSends.id, recipient.sendId))
-        await bumpVariant('clickedCount')
+      // Erst der Guard-Versuch für den ersten Klick — greift er nicht, war es ein
+      // Folgeklick und nur der Zähler auf der Empfängerzeile wandert hoch.
+      const wasFirstClick = await bumpIfChanged(sql`
+        UPDATE newsletter_recipients
+        SET status = 'clicked', clicked_at = ${timestamp}, click_count = 1
+        WHERE id = ${recipient.id}
+          AND click_count = 0
+          AND status NOT IN ('bounced', 'complained')
+      `, 'clickedCount')
+      if (!wasFirstClick) {
+        await db.run(sql`
+          UPDATE newsletter_recipients
+          SET status = 'clicked', click_count = click_count + 1
+          WHERE id = ${recipient.id}
+            AND status NOT IN ('bounced', 'complained')
+        `)
       }
       if (metadata?.click_url) {
         await db.insert(newsletterLinkClicks).values({
@@ -250,20 +306,21 @@ export async function updateRecipientEvent(
       break
     }
     case 'bounced': {
-      await db.update(newsletterRecipients)
-        .set({
-          status: 'bounced',
-          bouncedAt: timestamp,
-          bounceType: metadata?.bounce_type ?? null,
-          bounceSubType: metadata?.bounce_sub_type ?? null,
-          bounceMessage: metadata?.bounce_message ?? null,
-        })
-        .where(eq(newsletterRecipients.id, recipient.id))
-      await db.update(newsletterSends)
-        .set({ bouncedCount: sql`${newsletterSends.bouncedCount} + 1` })
-        .where(eq(newsletterSends.id, recipient.sendId))
-      await bumpVariant('bouncedCount')
-      if (metadata?.bounce_type === 'hard') {
+      const bounced = await bumpIfChanged(sql`
+        UPDATE newsletter_recipients
+        SET status = 'bounced',
+            bounced_at = ${timestamp},
+            bounce_type = ${metadata?.bounce_type ?? null},
+            bounce_sub_type = ${metadata?.bounce_sub_type ?? null},
+            bounce_message = ${metadata?.bounce_message ?? null}
+        WHERE id = ${recipient.id}
+          AND status NOT IN ('bounced', 'complained')
+      `, 'bouncedCount')
+      // Ein wiederholtes Bounce-Event für denselben Empfänger darf weder den
+      // Zähler noch die Sperr-Schwelle ein zweites Mal bewegen.
+      if (!bounced) break
+
+      if (isPermanentBounce(metadata?.bounce_type)) {
         await db.update(newsletterSubscribers)
           .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
           .where(and(
@@ -272,11 +329,11 @@ export async function updateRecipientEvent(
             eq(newsletterSubscribers.status, 'active'),
           ))
       } else {
-        // Soft/unknown bounce: suspend after threshold in rolling window.
+        // Soft/unbekannter Bounce: erst nach Schwelle im rollenden Fenster sperren.
         // Schwelle = 3 in 90 Tagen, gezählt nur für DIESE Site — sonst könnte
         // ein Webhook-Event für Site A die Schwelle für Site B überschreiten.
-        // Resend liefert bounce_type oft als undefined, daher zählen wir alles
-        // ausser explizit 'hard'.
+        // Alt-Datensätze haben bounce_type NULL (das Feld wurde nie befüllt,
+        // siehe isPermanentBounce) und zählen weiterhin als soft.
         const SOFT_BOUNCE_THRESHOLD = 3
         const counted = await db.run(sql`
           SELECT COUNT(*) AS count
@@ -285,7 +342,7 @@ export async function updateRecipientEvent(
           WHERE nr.email = ${recipient.email}
             AND ns.site_id = ${recipient.siteId}
             AND nr.status = 'bounced'
-            AND (nr.bounce_type IS NULL OR nr.bounce_type != 'hard')
+            AND (nr.bounce_type IS NULL OR nr.bounce_type != ${PERMANENT_BOUNCE_TYPE})
             AND nr.bounced_at IS NOT NULL
             AND nr.bounced_at > datetime('now', '-90 days')
         `)
@@ -303,13 +360,13 @@ export async function updateRecipientEvent(
       break
     }
     case 'complained': {
-      await db.update(newsletterRecipients)
-        .set({ status: 'complained', complainedAt: timestamp })
-        .where(eq(newsletterRecipients.id, recipient.id))
-      await db.update(newsletterSends)
-        .set({ complainedCount: sql`${newsletterSends.complainedCount} + 1` })
-        .where(eq(newsletterSends.id, recipient.sendId))
-      await bumpVariant('complainedCount')
+      const complained = await bumpIfChanged(sql`
+        UPDATE newsletter_recipients
+        SET status = 'complained', complained_at = ${timestamp}
+        WHERE id = ${recipient.id}
+          AND status NOT IN ('bounced', 'complained')
+      `, 'complainedCount')
+      if (!complained) break
       await db.update(newsletterSubscribers)
         .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
         .where(and(
@@ -420,13 +477,19 @@ export async function getLinkClicksForSend(sendId: number): Promise<LinkClickSta
 
 export async function getOverallNewsletterStats(siteId: string): Promise<OverallStats> {
   const db = getDb()
+  // Nur Sends mit echten Tracking-Daten zählen (siehe TRACKED_SENDS): abgebrochene
+  // Versände und Alt-Sends aus der Zeit vor dem Webhook haben delivered/bounced = 0
+  // und würden die Ø-Raten sonst mit einem leeren Nenner verwässern.
+  // Klickrate gegen delivered_count (Branchenstandard — wer nichts bekommen hat,
+  // kann nicht klicken), Bounce-Rate gegen recipient_count (Bounces sind ja
+  // gerade die nicht zugestellten).
   const rows = await db.run(sql`
     SELECT
       COUNT(*) as total_sends, SUM(recipient_count) as total_recipients,
-      CASE WHEN SUM(recipient_count) > 0 THEN ROUND(CAST(SUM(clicked_count) AS REAL) / SUM(recipient_count) * 100, 1) ELSE 0 END as avg_click_rate,
+      CASE WHEN SUM(delivered_count) > 0 THEN ROUND(CAST(SUM(clicked_count) AS REAL) / SUM(delivered_count) * 100, 1) ELSE 0 END as avg_click_rate,
       CASE WHEN SUM(recipient_count) > 0 THEN ROUND(CAST(SUM(bounced_count) AS REAL) / SUM(recipient_count) * 100, 1) ELSE 0 END as avg_bounce_rate,
       SUM(complained_count) as total_complaints
-    FROM newsletter_sends WHERE site_id = ${siteId}
+    FROM newsletter_sends WHERE site_id = ${siteId} AND ${TRACKED_SENDS}
   `)
   const r = rows.rows?.[0] ?? {}
   return {
