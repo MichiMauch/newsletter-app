@@ -17,7 +17,7 @@ const { getDb } = await import('@/lib/db')
 const { migrate } = await import('drizzle-orm/libsql/migrator')
 const {
   updateRecipientEvent, isPermanentBounce, PERMANENT_BOUNCE_TYPE, hasClickedNewsletterLink,
-  isUnsubscribeUrl,
+  isUnsubscribeUrl, getBounceStreak, streakWarrantsBlock,
 } = await import('@/lib/newsletter-sends')
 const { bounceMetadata } = await import('@/lib/newsletter-bounces')
 
@@ -342,6 +342,124 @@ describe('hasClickedNewsletterLink', () => {
     await recordClick('https://example.com/b', at(8))
     await recordClick('https://example.com/c', at(106))
     expect(await hasClickedNewsletterLink('kokomo', 'a@example.com')).toBe(false)
+  })
+})
+
+describe('Soft-Bounce-Sperre nach Serie', () => {
+  const ADDR = 'wackelig@example.com'
+
+  /** Legt einen Versand an und trägt das Ergebnis für ADDR ein. */
+  async function attempt(sendId: number, sentAt: string, outcome: 'delivered' | 'bounced', bounceType?: string) {
+    await db.run(sql`
+      INSERT INTO newsletter_sends (id, site_id, post_slug, post_title, subject, sent_at, recipient_count, status)
+      VALUES (${sendId}, 'kokomo', 'slug', 'Titel', 'Betreff', ${sentAt}, 1, 'sent')
+    `)
+    await db.run(sql`
+      INSERT INTO newsletter_recipients (send_id, email, resend_email_id, status, delivered_at, bounced_at, bounce_type)
+      VALUES (${sendId}, ${ADDR}, ${`r-${sendId}`}, ${outcome},
+              ${outcome === 'delivered' ? sentAt : null},
+              ${outcome === 'bounced' ? sentAt : null},
+              ${bounceType ?? null})
+    `)
+  }
+
+  beforeEach(async () => {
+    await db.run(sql`DELETE FROM newsletter_recipients`)
+    await db.run(sql`DELETE FROM newsletter_sends`)
+    await db.run(sql`DELETE FROM newsletter_subscribers`)
+    await db.run(sql`
+      INSERT INTO newsletter_subscribers (site_id, email, status, token)
+      VALUES ('kokomo', ${ADDR}, 'active', 'tok-w')
+    `)
+  })
+
+  async function status() {
+    const r = await db.run(sql`SELECT status FROM newsletter_subscribers WHERE email = ${ADDR}`)
+    return r.rows[0]?.status
+  }
+
+  it('zählt Bounces auch über Monate hinweg', async () => {
+    // Der reale Fall info@grischa-system-solutions.ch: gebounct am 10.03.,
+    // 08.04. und 06.08., nie zugestellt. Die alte 90-Tage-Regel sah davon
+    // immer nur einen und hat nie gesperrt.
+    await attempt(1, '2026-03-10 18:36:19', 'bounced', 'Transient')
+    await attempt(2, '2026-04-08 06:41:13', 'bounced', 'Transient')
+    await attempt(3, '2026-08-06 06:33:47', 'bounced', 'Transient')
+
+    const streak = await getBounceStreak('kokomo', ADDR)
+    expect(streak.count).toBe(3)
+    expect(streakWarrantsBlock(streak)).toBe(true)
+  })
+
+  it('setzt die Serie nach einer erfolgreichen Zustellung zurück', async () => {
+    // Der reale Fall info@apsonex.ch: März und April zugestellt, erst im
+    // August ein Bounce. Eine lebende Adresse darf davon nichts merken.
+    await attempt(1, '2026-03-10 18:36:19', 'delivered')
+    await attempt(2, '2026-04-08 06:41:13', 'delivered')
+    await attempt(3, '2026-08-06 06:33:47', 'bounced', 'Transient')
+
+    const streak = await getBounceStreak('kokomo', ADDR)
+    expect(streak.count).toBe(1)
+    expect(streakWarrantsBlock(streak)).toBe(false)
+  })
+
+  it('zählt nur Bounces NACH der letzten Zustellung', async () => {
+    await attempt(1, '2026-01-01 08:00:00', 'bounced', 'Transient')
+    await attempt(2, '2026-02-01 08:00:00', 'bounced', 'Transient')
+    await attempt(3, '2026-03-01 08:00:00', 'delivered')
+    await attempt(4, '2026-04-01 08:00:00', 'bounced', 'Transient')
+
+    expect((await getBounceStreak('kokomo', ADDR)).count).toBe(1)
+  })
+
+  it('sperrt beim dritten Bounce in Folge über den Webhook', async () => {
+    await attempt(1, '2026-03-10 18:36:19', 'bounced', 'Transient')
+    await attempt(2, '2026-04-08 06:41:13', 'bounced', 'Transient')
+    // Dritter Versuch ist noch offen — der Bounce kommt jetzt per Webhook.
+    await db.run(sql`
+      INSERT INTO newsletter_sends (id, site_id, post_slug, post_title, subject, sent_at, recipient_count, status)
+      VALUES (3, 'kokomo', 'slug', 'Titel', 'Betreff', '2026-08-06 06:33:47', 1, 'sent')
+    `)
+    await db.run(sql`
+      INSERT INTO newsletter_recipients (send_id, email, resend_email_id, status)
+      VALUES (3, ${ADDR}, 'r-live', 'sent')
+    `)
+    expect(await status()).toBe('active')
+
+    await updateRecipientEvent('r-live', 'bounced', T, bounceMetadata({ type: 'Transient' }))
+
+    expect(await status()).toBe('blocked')
+  })
+
+  it('sperrt beim zweiten Bounce, wenn Resend den Typ nicht einordnen kann', async () => {
+    await attempt(1, '2026-03-10 18:36:19', 'bounced', 'Undetermined')
+    const streak = await getBounceStreak('kokomo', ADDR)
+    expect(streakWarrantsBlock(streak)).toBe(false)
+
+    await attempt(2, '2026-04-08 06:41:13', 'bounced', 'Undetermined')
+    const streak2 = await getBounceStreak('kokomo', ADDR)
+    expect(streak2.allUndetermined).toBe(true)
+    expect(streakWarrantsBlock(streak2)).toBe(true)
+  })
+
+  it('behandelt Alt-Bounces ohne Typ nicht als Undetermined', async () => {
+    // bounce_type NULL heisst "nie angekommen", nicht "unbestimmt" — sonst
+    // würde die schärfere Schwelle rückwirkend auf Altdaten angewandt.
+    await attempt(1, '2026-03-10 18:36:19', 'bounced')
+    await attempt(2, '2026-04-08 06:41:13', 'bounced')
+
+    const streak = await getBounceStreak('kokomo', ADDR)
+    expect(streak.count).toBe(2)
+    expect(streak.allUndetermined).toBe(false)
+    expect(streakWarrantsBlock(streak)).toBe(false)
+  })
+
+  it('trennt nach Site', async () => {
+    await attempt(1, '2026-03-10 18:36:19', 'bounced', 'Transient')
+    await attempt(2, '2026-04-08 06:41:13', 'bounced', 'Transient')
+    await attempt(3, '2026-08-06 06:33:47', 'bounced', 'Transient')
+
+    expect((await getBounceStreak('andere-site', ADDR)).count).toBe(0)
   })
 })
 

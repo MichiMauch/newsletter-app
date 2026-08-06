@@ -62,6 +62,84 @@ export function isPermanentBounce(bounceType: string | null | undefined): boolea
   return bounceType?.toLowerCase() === PERMANENT_BOUNCE_TYPE.toLowerCase()
 }
 
+// ─── Soft-Bounce-Sperre ─────────────────────────────────────────────────
+
+/**
+ * Ab wie vielen Bounces in Folge — ohne dazwischenliegende Zustellung — eine
+ * Adresse gesperrt wird.
+ *
+ * Vorher galt "3 Bounces in 90 Tagen". Diese Regel konnte bei einem Newsletter,
+ * der alle ein bis vier Monate erscheint, gar nicht auslösen: als der Bounce vom
+ * 06.08. eintraf, waren die Bounces vom 10.03. und 08.04. längst aus dem Fenster
+ * gefallen, der Zähler stand bei 1. info@grischa-system-solutions.ch ist bei
+ * JEDEM der drei Versände gebounct — die Domain hat seit Monaten keinen
+ * DNS-Eintrag mehr — und wäre trotzdem nie gesperrt worden.
+ *
+ * Der richtige Massstab ist nicht die Zeit, sondern die Zahl der Versuche.
+ */
+export const SOFT_BOUNCE_STREAK = 3
+
+/**
+ * Resend klassifiziert 'Undetermined', wenn es den Bounce nicht einordnen kann,
+ * und empfiehlt, ihn bei Wiederholung wie einen Hard Bounce zu behandeln.
+ * Deshalb hier eine niedrigere Schwelle als bei 'Transient'.
+ */
+export const UNDETERMINED_BOUNCE_STREAK = 2
+
+export interface BounceStreak {
+  /** Bounces seit der letzten erfolgreichen Zustellung. */
+  count: number
+  /** Ob alle davon 'Undetermined' waren. */
+  allUndetermined: boolean
+}
+
+/**
+ * Zählt die Bounces, die seit der letzten erfolgreichen Zustellung an diese
+ * Adresse aufgelaufen sind.
+ *
+ * Nur eine Zustellung bricht die Serie. Versände, zu denen nie eine Rückmeldung
+ * kam (Status 'sent', 'delayed', 'failed'), sind weder das eine noch das andere
+ * und bleiben unberücksichtigt, statt die Serie fälschlich zurückzusetzen.
+ *
+ * Site-genau, weil dieselbe Adresse laut Schema auf mehreren Sites existieren
+ * darf. Bounces aus Automations-Mails zählen nicht mit — die liegen in
+ * email_automation_sends; dort greifen bislang nur die Sperren für Hard Bounce
+ * und Beschwerde.
+ */
+export async function getBounceStreak(siteId: string, email: string): Promise<BounceStreak> {
+  const db = getDb()
+  const rows = await db.run(sql`
+    SELECT nr.bounce_type
+    FROM newsletter_recipients nr
+    JOIN newsletter_sends ns ON ns.id = nr.send_id
+    WHERE nr.email = ${email}
+      AND ns.site_id = ${siteId}
+      AND nr.status = 'bounced'
+      AND ns.sent_at > COALESCE((
+        SELECT MAX(ns2.sent_at)
+        FROM newsletter_recipients nr2
+        JOIN newsletter_sends ns2 ON ns2.id = nr2.send_id
+        WHERE nr2.email = ${email}
+          AND ns2.site_id = ${siteId}
+          AND nr2.delivered_at IS NOT NULL
+      ), '')
+  `)
+  const types = (rows.rows ?? []).map((r) => (r.bounce_type as string | null) ?? null)
+  return {
+    count: types.length,
+    // Alt-Datensätze mit bounce_type NULL gelten NICHT als 'Undetermined' —
+    // dort ist der Typ nie angekommen (siehe PERMANENT_BOUNCE_TYPE), das ist
+    // fehlende Information und kein Befund.
+    allUndetermined: types.length > 0 && types.every((t) => t?.toLowerCase() === 'undetermined'),
+  }
+}
+
+/** Reicht die Serie, um die Adresse zu sperren? */
+export function streakWarrantsBlock(streak: BounceStreak): boolean {
+  if (streak.allUndetermined) return streak.count >= UNDETERMINED_BOUNCE_STREAK
+  return streak.count >= SOFT_BOUNCE_STREAK
+}
+
 export interface NewsletterSend {
   id: number
   site_id: string
@@ -462,25 +540,11 @@ export async function updateRecipientEvent(
             eq(newsletterSubscribers.status, 'active'),
           ))
       } else {
-        // Soft/unbekannter Bounce: erst nach Schwelle im rollenden Fenster sperren.
-        // Schwelle = 3 in 90 Tagen, gezählt nur für DIESE Site — sonst könnte
-        // ein Webhook-Event für Site A die Schwelle für Site B überschreiten.
-        // Alt-Datensätze haben bounce_type NULL (das Feld wurde nie befüllt,
-        // siehe isPermanentBounce) und zählen weiterhin als soft.
-        const SOFT_BOUNCE_THRESHOLD = 3
-        const counted = await db.run(sql`
-          SELECT COUNT(*) AS count
-          FROM newsletter_recipients nr
-          JOIN newsletter_sends ns ON ns.id = nr.send_id
-          WHERE nr.email = ${recipient.email}
-            AND ns.site_id = ${recipient.siteId}
-            AND nr.status = 'bounced'
-            AND (nr.bounce_type IS NULL OR nr.bounce_type != ${PERMANENT_BOUNCE_TYPE})
-            AND nr.bounced_at IS NOT NULL
-            AND nr.bounced_at > datetime('now', '-90 days')
-        `)
-        const softCount = (counted.rows?.[0]?.count as number) ?? 0
-        if (softCount >= SOFT_BOUNCE_THRESHOLD) {
+        // Soft/unbekannter Bounce: sperren, sobald genug Versuche in Folge
+        // gescheitert sind. Der Zeitbezug ist bewusst weg — siehe
+        // SOFT_BOUNCE_STREAK.
+        const streak = await getBounceStreak(recipient.siteId, recipient.email)
+        if (streakWarrantsBlock(streak)) {
           await db.update(newsletterSubscribers)
             .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
             .where(and(
