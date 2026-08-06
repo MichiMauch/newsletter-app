@@ -26,6 +26,7 @@ import type {
   ConditionNodeConfig,
   TagNodeConfig,
 } from './graph-types'
+import { recordGraphAutomationSend, hasClickedAutomationEmail } from './automation'
 import {
   getPendingGraphRuns,
   getNode,
@@ -215,14 +216,14 @@ async function executeEmail(
     firstName: subscriber.firstName,
   })
 
-  // Record to both automation_node_executions + legacy email_automation_sends (webhook compat)
   await recordNodeExecution(run.enrollment_id, node.id, 'completed', {
     output: { resend_email_id: resendEmailId },
   })
+  // Send-Zeile für den Webhook: er sucht Ereignisse ausschliesslich über die
+  // resend_email_id. Ohne diese Zeile landeten Klicks, Bounces und Beschwerden
+  // zu Automations-Mails im Nichts.
   if (resendEmailId) {
-    // Old recordAutomationSend requires step_id — we use nodeId as a soft reference.
-    // The webhooks can join on resend_email_id instead.
-    void resendEmailId
+    await recordGraphAutomationSend(run.enrollment_id, node.id, resendEmailId)
   }
 
   const next = await getNextNodes(run.automation_id, node.id)
@@ -278,6 +279,11 @@ async function executeLastNewsletter(
   await recordNodeExecution(run.enrollment_id, node.id, 'completed', {
     output: { resend_email_id: resendEmailId },
   })
+  // Auch dieser Node verschickt echte Mails — ohne Send-Zeile fielen ihre
+  // Webhook-Ereignisse genauso durch wie beim normalen Email-Node.
+  if (resendEmailId) {
+    await recordGraphAutomationSend(run.enrollment_id, node.id, resendEmailId)
+  }
 
   const next = await getNextNodes(run.automation_id, node.id)
   await advanceEnrollmentToNode(run.enrollment_id, next[0] ?? null, run.context)
@@ -296,17 +302,23 @@ async function executeCondition(run: GraphRun, node: GraphNode): Promise<{ statu
         result = await hasTag(run.site_id, run.subscriber_email, cfg.tag)
       }
       break
-    case 'clicked_link':
+    case 'clicked_link': {
       // Zeitfenster ab Enrollment: die Bedingung soll auf eine Reaktion
       // innerhalb dieser Automation reagieren, nicht auf einen Klick von vor
-      // einem Jahr. Erfasst werden Klicks in regulären Newsletter-Versänden —
-      // Mails, die die Automation selbst verschickt hat, legen bislang keine
-      // Empfängerzeile an und tauchen deshalb nicht auf (newsletter-app-qb5).
+      // einem Jahr.
       result = await hasClickedNewsletterLink(run.site_id, run.subscriber_email, {
         since: run.enrolled_at,
         urlContains: cfg.url_contains,
       })
+      // Mails, die die Automation selbst verschickt hat, werden separat
+      // geführt und halten nur die Klickanzahl fest, nicht die URLs. Deshalb
+      // zählen sie nur, wenn gar kein URL-Filter gesetzt ist — sonst würde ein
+      // beliebiger Klick als Treffer für eine bestimmte URL durchgehen.
+      if (!result && !cfg.url_contains?.trim()) {
+        result = await hasClickedAutomationEmail(run.enrollment_id)
+      }
       break
+    }
     case 'opened_email':
       // Bleibt bewusst false: Open-Tracking ist bei Resend abgeschaltet, weil
       // Apple Mail Privacy Protection Tracking-Pixel automatisch beim Zustellen

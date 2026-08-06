@@ -331,6 +331,9 @@ function ConditionConfigFields({ config, onChange }: { config: ConditionNodeConf
           <input type="text" value={config.url_contains ?? ''} onChange={(e) => onChange({ ...config, url_contains: e.target.value })} placeholder="leer = beliebig" className={inputCls} />
           <p className="mt-1.5 text-[10px] text-[var(--text-muted)]">
             Zählt Klicks in Newsletter-Versänden ab dem Start dieser Automation.
+            Klicks in Mails, die diese Automation selbst verschickt, zählen nur
+            mit, wenn das Feld leer bleibt — für sie ist die geklickte URL nicht
+            gespeichert.
           </p>
         </div>
       )}

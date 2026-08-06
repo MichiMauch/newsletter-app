@@ -10,7 +10,9 @@ import {
   emailAutomationEnrollments,
   emailAutomationSends,
   automationNodes,
+  newsletterSubscribers,
 } from './schema'
+import { isPermanentBounce } from './newsletter-sends'
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -159,7 +161,35 @@ export async function getEnrollments(automationId: number): Promise<AutomationEn
   }))
 }
 
-// ─── Webhook Event Tracking (Legacy email_automation_sends table) ─────
+// ─── Send-Erfassung ────────────────────────────────────────────────────
+
+/**
+ * Legt für eine von einer Graph-Automation verschickte Mail eine Send-Zeile an.
+ *
+ * Ohne diese Zeile findet der Resend-Webhook zu der resend_email_id nichts —
+ * weder hier noch in newsletter_recipients — und verwirft Klicks, Bounces und
+ * Beschwerden stillschweigend. Besonders folgenreich beim Bounce: eine tote
+ * Adresse würde von der Automation immer weiter angeschrieben, was die
+ * Zustellbarkeit der ganzen Domain beschädigt.
+ *
+ * step_id bleibt NULL — Graph-Nodes haben keine Zeile in
+ * email_automation_steps, sie identifizieren sich über node_id.
+ */
+export async function recordGraphAutomationSend(
+  enrollmentId: number,
+  nodeId: string,
+  resendEmailId: string | null,
+): Promise<void> {
+  const db = getDb()
+  await db.insert(emailAutomationSends).values({
+    enrollmentId,
+    stepId: null,
+    nodeId,
+    resendEmailId,
+  })
+}
+
+// ─── Webhook Event Tracking ────────────────────────────────────────────
 
 export async function updateAutomationSendEvent(
   resendEmailId: string,
@@ -169,12 +199,24 @@ export async function updateAutomationSendEvent(
 ): Promise<void> {
   const db = getDb()
 
+  // Site und Adresse über das Enrollment auflösen — nötig, um bei Bounce oder
+  // Beschwerde denselben Subscriber zu sperren, den auch der Newsletter-Pfad
+  // sperren würde. Die Site muss dabei aus der Automation kommen: dieselbe
+  // Adresse darf laut Schema auf mehreren Sites existieren.
   const existing = await db.select({
-    id: emailAutomationSends.id, status: emailAutomationSends.status,
-  }).from(emailAutomationSends).where(eq(emailAutomationSends.resendEmailId, resendEmailId)).limit(1)
+    id: emailAutomationSends.id,
+    status: emailAutomationSends.status,
+    email: emailAutomationEnrollments.subscriberEmail,
+    siteId: emailAutomations.siteId,
+  })
+    .from(emailAutomationSends)
+    .innerJoin(emailAutomationEnrollments, eq(emailAutomationEnrollments.id, emailAutomationSends.enrollmentId))
+    .innerJoin(emailAutomations, eq(emailAutomations.id, emailAutomationEnrollments.automationId))
+    .where(eq(emailAutomationSends.resendEmailId, resendEmailId))
+    .limit(1)
   if (existing.length === 0) return
 
-  const { id, status } = existing[0]
+  const { id, status, email, siteId } = existing[0]
   if (status === 'bounced' || status === 'complained') return
 
   switch (event) {
@@ -203,13 +245,52 @@ export async function updateAutomationSendEvent(
           bounceMessage: extras?.bounce_message ?? null,
         })
         .where(eq(emailAutomationSends.id, id))
+      // Ein Hard Bounce muss die Adresse sperren, egal aus welchem Kanal er
+      // kommt. Vorher passierte das nur im Newsletter-Pfad — eine Automation
+      // hätte eine tote Adresse endlos weiter angeschrieben.
+      if (isPermanentBounce(extras?.bounce_type)) {
+        await blockSubscriber(siteId, email)
+      }
       break
     case 'complained':
       await db.update(emailAutomationSends)
         .set({ status: 'complained', complainedAt: timestamp })
         .where(eq(emailAutomationSends.id, id))
+      await blockSubscriber(siteId, email)
       break
   }
+}
+
+/**
+ * Hat der Subscriber eine Mail AUS DIESER Automation geklickt?
+ *
+ * Grobkörniger als der Newsletter-Pfad: email_automation_sends hält nur die
+ * Klickanzahl, nicht die geklickten URLs. Ein URL-Filter lässt sich hier also
+ * nicht auswerten — der Aufrufer muss das berücksichtigen, statt stillschweigend
+ * jeden Klick als Treffer zu werten (siehe executeCondition in graph-processor).
+ */
+export async function hasClickedAutomationEmail(enrollmentId: number): Promise<boolean> {
+  const db = getDb()
+  const rows = await db.select({ id: emailAutomationSends.id })
+    .from(emailAutomationSends)
+    .where(and(
+      eq(emailAutomationSends.enrollmentId, enrollmentId),
+      sql`${emailAutomationSends.clickCount} > 0`,
+    ))
+    .limit(1)
+  return rows.length > 0
+}
+
+/** Sperrt eine aktive Adresse — site-genau, weil dieselbe Mail auf mehreren Sites liegen darf. */
+async function blockSubscriber(siteId: string, email: string): Promise<void> {
+  const db = getDb()
+  await db.update(newsletterSubscribers)
+    .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
+    .where(and(
+      eq(newsletterSubscribers.siteId, siteId),
+      eq(newsletterSubscribers.email, email),
+      eq(newsletterSubscribers.status, 'active'),
+    ))
 }
 
 // ─── Manual Enrollment ──────────────────────────────────────────────────

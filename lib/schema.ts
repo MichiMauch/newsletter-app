@@ -251,7 +251,12 @@ export const emailAutomationEnrollments = sqliteTable('email_automation_enrollme
 export const emailAutomationSends = sqliteTable('email_automation_sends', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   enrollmentId: integer('enrollment_id').notNull().references(() => emailAutomationEnrollments.id, { onDelete: 'cascade' }),
-  stepId: integer('step_id').notNull().references(() => emailAutomationSteps.id, { onDelete: 'cascade' }),
+  // Genau eines von beiden ist gesetzt: step_id bei den alten linearen
+  // Automationen, node_id bei den Graph-Automationen. Ohne node_id konnten
+  // Graph-Mails hier gar nicht abgelegt werden — deshalb fand der Webhook zu
+  // ihnen nichts und verwarf Klicks und Bounces stillschweigend.
+  stepId: integer('step_id').references(() => emailAutomationSteps.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id'),
   resendEmailId: text('resend_email_id'),
   status: text('status').notNull().default('sent'),
   sentAt: text('sent_at').notNull().default(sql`(datetime('now'))`),
