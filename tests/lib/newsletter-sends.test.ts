@@ -15,7 +15,9 @@ process.env.TURSO_DB_TOKEN = ''
 
 const { getDb } = await import('@/lib/db')
 const { migrate } = await import('drizzle-orm/libsql/migrator')
-const { updateRecipientEvent, isPermanentBounce, PERMANENT_BOUNCE_TYPE } = await import('@/lib/newsletter-sends')
+const {
+  updateRecipientEvent, isPermanentBounce, PERMANENT_BOUNCE_TYPE, hasClickedNewsletterLink,
+} = await import('@/lib/newsletter-sends')
 const { bounceMetadata } = await import('@/lib/newsletter-bounces')
 
 const db = getDb()
@@ -160,6 +162,42 @@ describe('updateRecipientEvent — Bounces', () => {
     await updateRecipientEvent('resend-0', 'bounced', T, bounceMetadata({ type: 'Transient' }))
 
     expect((await sendCounters()).bounced_count).toBe(1)
+  })
+})
+
+describe('hasClickedNewsletterLink', () => {
+  // Grundlage der Automations-Bedingung "Hat Link geklickt", die vorher
+  // hart auf false verdrahtet war und immer den Nein-Pfad genommen hat.
+  const CLICKED = 'https://www.kokomo.house/tiny-house/daemmung-im-hitzetest/'
+
+  async function recordClick(url: string, at: string) {
+    await updateRecipientEvent('resend-0', 'clicked', at, { click_url: url })
+  }
+
+  it('findet einen Klick des Subscribers', async () => {
+    await recordClick(CLICKED, T)
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com')).toBe(true)
+  })
+
+  it('meldet false ohne jeden Klick', async () => {
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com')).toBe(false)
+  })
+
+  it('filtert auf einen URL-Teilstring', async () => {
+    await recordClick(CLICKED, T)
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com', { urlContains: 'hitzetest' })).toBe(true)
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com', { urlContains: 'quiz' })).toBe(false)
+  })
+
+  it('berücksichtigt nur Klicks ab dem Startzeitpunkt', async () => {
+    await recordClick(CLICKED, '2026-08-06T06:00:00.000Z')
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com', { since: '2026-08-06T05:00:00.000Z' })).toBe(true)
+    expect(await hasClickedNewsletterLink('kokomo', 'a@example.com', { since: '2026-08-06T07:00:00.000Z' })).toBe(false)
+  })
+
+  it('trennt nach Site', async () => {
+    await recordClick(CLICKED, T)
+    expect(await hasClickedNewsletterLink('andere-site', 'a@example.com')).toBe(false)
   })
 })
 

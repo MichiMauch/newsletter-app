@@ -379,6 +379,42 @@ export async function updateRecipientEvent(
   }
 }
 
+/**
+ * Hat dieser Subscriber einen Link in einem Newsletter geklickt?
+ *
+ * Quelle ist newsletter_link_clicks — die einzige Stelle, an der Klicks samt
+ * URL landen. Klicks auf Mails, die eine Automation selbst verschickt hat,
+ * sind hier NICHT enthalten: Graph-Automationen legen für ihre Sends gar keine
+ * Empfängerzeile an (siehe graph-processor.ts, `void resendEmailId`), die
+ * Webhooks finden also nichts zum Zuordnen.
+ *
+ * @param since       nur Klicks ab diesem Zeitpunkt (ISO) — z. B. der Beginn
+ *                    der Automation, damit die Bedingung nicht auf einen Klick
+ *                    von vor einem Jahr anspringt
+ * @param urlContains Teilstring-Filter auf die geklickte URL
+ */
+export async function hasClickedNewsletterLink(
+  siteId: string,
+  email: string,
+  opts: { since?: string | null; urlContains?: string | null } = {},
+): Promise<boolean> {
+  const db = getDb()
+  const since = opts.since ?? null
+  const urlContains = opts.urlContains?.trim() || null
+  const rows = await db.run(sql`
+    SELECT 1 AS hit
+    FROM newsletter_link_clicks lc
+    JOIN newsletter_recipients r ON r.id = lc.recipient_id
+    JOIN newsletter_sends s ON s.id = lc.send_id
+    WHERE s.site_id = ${siteId}
+      AND r.email = ${email}
+      AND (${since} IS NULL OR lc.clicked_at >= ${since})
+      AND (${urlContains} IS NULL OR lc.url LIKE '%' || ${urlContains} || '%')
+    LIMIT 1
+  `)
+  return (rows.rows?.length ?? 0) > 0
+}
+
 export async function getRecipientByResendId(resendEmailId: string): Promise<{ email: string; site_id: string } | null> {
   const db = getDb()
   const rows = await db

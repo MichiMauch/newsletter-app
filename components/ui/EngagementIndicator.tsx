@@ -9,34 +9,44 @@ interface TierMeta {
   badge: string
 }
 
+/**
+ * Beschriftet wird, was tatsächlich gemessen wird: Klicks.
+ *
+ * Vorher hiessen die Stufen "Aktiv" bis "Kalt" und versprachen damit eine
+ * Aussage über Lesen und Öffnen, die die Daten nicht hergeben — Öffnungen
+ * werden bewusst nicht erhoben (Apple Mail Privacy Protection macht sie
+ * wertlos). "Kalt" war zudem rot eingefärbt und als Re-Engagement-Kandidat
+ * beschrieben; wer nur nie klickt, ist aber kein Problemfall. Die unterste
+ * Stufe ist deshalb neutral grau statt rot.
+ */
 const TIER_META: Record<EngagementTier, TierMeta> = {
   active: {
-    label: 'Aktiv',
-    description: 'Öffnet & klickt regelmässig.',
+    label: 'Klickt oft',
+    description: 'Hat in den letzten 90 Tagen bei fast jedem Versand geklickt.',
     dot: 'bg-emerald-500',
     badge:
       'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
   },
   moderate: {
-    label: 'Mässig',
-    description: 'Liest gelegentlich.',
+    label: 'Klickt manchmal',
+    description: 'Klickt bei einem Teil der Versände.',
     dot: 'bg-blue-500',
     badge:
       'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300',
   },
   dormant: {
-    label: 'Schlafend',
-    description: 'Wenig Aktivität in den letzten Wochen.',
+    label: 'Klickt selten',
+    description: 'Vereinzelte Klicks, oder der letzte liegt länger zurück.',
     dot: 'bg-amber-500',
     badge:
       'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
   },
   cold: {
-    label: 'Kalt',
-    description: 'Lange keine Reaktion mehr — Re-Engagement-Kandidat.',
-    dot: 'bg-red-500',
-    badge:
-      'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300',
+    label: 'Kein Klick',
+    description:
+      'Kein Klick in den letzten 90 Tagen. Sagt nichts darüber aus, ob gelesen wird — Öffnungen werden nicht erhoben.',
+    dot: 'bg-[var(--text-muted)]',
+    badge: 'bg-[var(--bg-secondary)] text-[var(--text-muted)]',
   },
 }
 

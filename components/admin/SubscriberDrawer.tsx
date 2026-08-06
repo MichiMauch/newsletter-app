@@ -257,17 +257,17 @@ export default function SubscriberDrawer({ subscriber, onClose, onChanged, setCo
                 </Section>
               )}
 
+              {/* Kein "Opens"-Wert: Öffnungen werden nicht erhoben, die Kachel
+                  stünde dauerhaft auf 0 und sähe aus wie eine Messung. */}
               {profile.engagement && (
                 <Section title="Engagement (90 Tage)">
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <Stat label="Sends" value={profile.engagement.sends_90d} />
-                    <Stat label="Opens" value={profile.engagement.opens_90d} />
                     <Stat label="Klicks" value={profile.engagement.clicks_90d} />
                   </div>
-                  {(profile.engagement.last_open_at || profile.engagement.last_click_at) && (
-                    <div className="mt-3 space-y-1 text-xs text-[var(--text-secondary)]">
-                      {profile.engagement.last_open_at && <div>Letzter Open: {formatDate(profile.engagement.last_open_at)}</div>}
-                      {profile.engagement.last_click_at && <div>Letzter Klick: {formatDate(profile.engagement.last_click_at)}</div>}
+                  {profile.engagement.last_click_at && (
+                    <div className="mt-3 text-xs text-[var(--text-secondary)]">
+                      Letzter Klick: {formatDate(profile.engagement.last_click_at)}
                     </div>
                   )}
                 </Section>

@@ -1,16 +1,32 @@
 /**
  * Engagement-Score pro Subscriber (0-100, Tier active/moderate/dormant/cold)
  *
- * Basis für:
- *  - Re-Engagement-Automation (Trigger 'engagement_below')
- *  - Listen-Hygiene (Tier 'cold' = Kandidat zur Deaktivierung)
- *  - Reporting (welche Subscriber sind wirklich aktiv?)
+ * WICHTIG — der Score misst ausschliesslich KLICKS, nicht Öffnungen.
+ *
+ * Die frühere Formel gab Öffnungen 50 % Gewicht. Öffnungen werden aber gar nicht
+ * erhoben (Open-Tracking ist bei Resend bewusst aus, siehe unten), also war
+ * dieser halbe Score konstant 0. Folge: jeder, der nicht klickte, bekam
+ * zwangsläufig Score 0 und landete auf Tier 'cold' — 39 von 61 Subscribern.
+ * Diese Leute lesen den Newsletter womöglich jedes Mal; sie sind nicht kalt,
+ * sondern nur nicht messbar.
+ *
+ * Warum keine Öffnungen: Apple Mail Privacy Protection lädt Tracking-Pixel
+ * automatisch beim Zustellen, unabhängig davon, ob jemand die Mail ansieht. Die
+ * resultierende Öffnungsrate misst im Wesentlichen den Apple-Anteil der Liste.
+ * Ein Klick ist dagegen eine echte, nicht simulierbare Handlung.
  *
  * Berechnung über die letzten 90 Tage:
- *   open_rate  = unique_opens  / sends     (max 50 Punkte)
- *   click_rate = unique_clicks / sends     (max 50 Punkte)
+ *   click_rate = sends_mit_klick / sends
  *   recency_factor: <30d = 1.0, <60d = 0.7, <90d = 0.4, sonst 0.1
- *   score = clamp(0, 100, (open_rate * 50 + click_rate * 50) * recency_factor)
+ *   score = clamp(0, 100, click_rate * 100 * recency_factor)
+ *
+ * Basis für:
+ *  - Re-Engagement-Automation (Trigger 'engagement_below')
+ *  - Reporting (wer reagiert nachweisbar?)
+ *
+ * NICHT als Basis für Listen-Hygiene geeignet: ein niedriger Score heisst
+ * "hat nicht geklickt", nicht "liest nicht". Wer daraus eine Abmeldung
+ * ableitet, wirft stille Leser raus.
  */
 
 import { and, eq, sql } from 'drizzle-orm'
@@ -35,7 +51,15 @@ export interface EngagementScore {
   last_click_at: string | null
 }
 
+/**
+ * Die Tier-Werte bleiben aus Kompatibilitätsgründen unverändert (sie stehen so
+ * in subscriber_engagement und in Automations-Triggern). Was sich geändert hat,
+ * ist ihre Bedeutung: sie beschreiben jetzt Klick-Häufigkeit, nicht
+ * "Aktivität". Die Beschriftung im UI ist entsprechend angepasst —
+ * siehe components/ui/EngagementIndicator.tsx.
+ */
 function tierFromScore(score: number, sends90d: number): EngagementScore['tier'] {
+  // Wer noch nichts bekommen hat, kann auch nicht geklickt haben.
   if (sends90d === 0) return 'cold'
   if (score >= 60) return 'active'
   if (score >= 30) return 'moderate'
@@ -59,8 +83,7 @@ export async function computeEngagementScore(siteId: string, email: string): Pro
 
   const sinceIso = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString()
 
-  // Sends + Opens + Clicks aus newsletter_recipients in den letzten 90 Tagen
-  // (parallel mit Opens aus subscriber_open_signals — beide Queries unabhängig)
+  // Sends + Klicks aus newsletter_recipients in den letzten 90 Tagen.
   const [stats, opens] = await Promise.all([
     db.run(sql`
       SELECT
@@ -72,12 +95,22 @@ export async function computeEngagementScore(siteId: string, email: string): Pro
       WHERE ns.site_id = ${siteId}
         AND nr.email = ${email}
         AND ns.sent_at >= ${sinceIso}
+        -- Abgebrochene Versände zählen nicht in den Nenner: sie sind nie
+        -- rausgegangen, würden die Klickrate aber halbieren. Gebouncte
+        -- Empfänger ebenso wenig — wer die Mail nie bekam, kann nicht klicken.
+        AND ns.status = 'sent'
+        AND nr.status != 'bounced'
     `),
+    // Echte Öffnungen — `source = 'opened'` grenzt sie gegen die klick-
+    // abgeleiteten Signale ab, die in derselben Tabelle liegen. Solange
+    // Open-Tracking aus ist, bleibt das konstant 0; die Spalte behält damit
+    // die Bedeutung, die ihr Name verspricht, statt Klicks doppelt zu zählen.
     db.run(sql`
       SELECT COUNT(*) as opens, MAX(opened_at_utc) as last_open_at
       FROM subscriber_open_signals
       WHERE site_id = ${siteId}
         AND subscriber_email = ${email}
+        AND source = 'opened'
         AND is_bot_open = 0
         AND opened_at_utc >= ${sinceIso}
     `),
@@ -93,11 +126,9 @@ export async function computeEngagementScore(siteId: string, email: string): Pro
 
   let score = 0
   if (sends90d > 0) {
-    const openRate = Math.min(opens90d / sends90d, 1)
     const clickRate = Math.min(clicks90d / sends90d, 1)
-    const lastInteraction = [lastOpenAt, lastClickAt].filter(Boolean).sort().pop() ?? null
-    const factor = recencyFactor(lastInteraction)
-    score = Math.round(Math.min(100, Math.max(0, (openRate * 50 + clickRate * 50) * factor)))
+    const factor = recencyFactor(lastClickAt)
+    score = Math.round(Math.min(100, Math.max(0, clickRate * 100 * factor)))
   }
 
   const tier = tierFromScore(score, sends90d)

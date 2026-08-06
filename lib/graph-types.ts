@@ -111,5 +111,5 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
 export const CONDITION_TYPE_LABELS: Record<ConditionType, string> = {
   has_tag: 'Hat Tag',
   clicked_link: 'Hat Link geklickt',
-  opened_email: 'Hat E-Mail geöffnet',
+  opened_email: 'Hat E-Mail geöffnet (nicht verfügbar)',
 }

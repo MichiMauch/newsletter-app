@@ -325,10 +325,21 @@ function ConditionConfigFields({ config, onChange }: { config: ConditionNodeConf
           <input type="text" value={config.tag ?? ''} onChange={(e) => onChange({ ...config, tag: e.target.value })} placeholder="z.B. vip-kunde" className={inputCls} />
         </div>
       )}
-      {(config.condition_type === 'clicked_link' || config.condition_type === 'opened_email') && (
+      {config.condition_type === 'clicked_link' && (
         <div>
           <label className={labelCls}>URL enthält</label>
           <input type="text" value={config.url_contains ?? ''} onChange={(e) => onChange({ ...config, url_contains: e.target.value })} placeholder="leer = beliebig" className={inputCls} />
+          <p className="mt-1.5 text-[10px] text-[var(--text-muted)]">
+            Zählt Klicks in Newsletter-Versänden ab dem Start dieser Automation.
+          </p>
+        </div>
+      )}
+      {config.condition_type === 'opened_email' && (
+        <div className="border border-amber-300 bg-amber-50 p-3 text-[10px] text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+          Öffnungen werden nicht erhoben: Apple Mail lädt Tracking-Pixel automatisch
+          beim Zustellen, die Öffnungsrate misst deshalb vor allem den Apple-Anteil
+          der Liste. Diese Bedingung nimmt <strong>immer den Nein-Pfad</strong> —
+          nutze stattdessen &laquo;Hat Link geklickt&raquo;.
         </div>
       )}
       <div className="border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-3 text-[10px] text-[var(--text-secondary)]">

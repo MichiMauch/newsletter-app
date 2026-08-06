@@ -6,6 +6,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { sendMultiBlockNewsletterEmail } from './notify'
 import { getSubscriberByEmail, getLastSendWithBlocks } from './newsletter'
+import { hasClickedNewsletterLink } from './newsletter-sends'
 import { getContentItemsBySlugs } from './content'
 import { getSiteConfig } from './site-config'
 import { addTag, removeTag, hasTag } from './tags'
@@ -296,14 +297,24 @@ async function executeCondition(run: GraphRun, node: GraphNode): Promise<{ statu
       }
       break
     case 'clicked_link':
-    case 'opened_email': {
-      // Check execution history: was there a successful email node,
-      // and does the context contain clicked/opened event?
-      // For now: check if any email node execution has been completed.
-      // TODO: proper integration with Resend webhook events
+      // Zeitfenster ab Enrollment: die Bedingung soll auf eine Reaktion
+      // innerhalb dieser Automation reagieren, nicht auf einen Klick von vor
+      // einem Jahr. Erfasst werden Klicks in regulären Newsletter-Versänden —
+      // Mails, die die Automation selbst verschickt hat, legen bislang keine
+      // Empfängerzeile an und tauchen deshalb nicht auf (newsletter-app-qb5).
+      result = await hasClickedNewsletterLink(run.site_id, run.subscriber_email, {
+        since: run.enrolled_at,
+        urlContains: cfg.url_contains,
+      })
+      break
+    case 'opened_email':
+      // Bleibt bewusst false: Open-Tracking ist bei Resend abgeschaltet, weil
+      // Apple Mail Privacy Protection Tracking-Pixel automatisch beim Zustellen
+      // lädt und die Öffnungsrate damit vor allem den Apple-Anteil der Liste
+      // misst. Eine Bedingung, die auf solchen Daten verzweigt, wäre schlechter
+      // als gar keine. Der Node-Typ ist im Builder entsprechend markiert.
       result = false
       break
-    }
   }
 
   const label: 'yes' | 'no' = result ? 'yes' : 'no'

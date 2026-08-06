@@ -17,11 +17,13 @@ export interface Subscriber {
   tags?: string[]
 }
 
+// Beschriftung wie in components/ui/EngagementIndicator.tsx — die Stufen messen
+// Klicks, nicht Öffnungen. Beide Stellen müssen dieselbe Sprache sprechen.
 export const tierBadge: Record<string, { label: string; cls: string }> = {
-  active: { label: 'Aktiv', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' },
-  moderate: { label: 'Mässig', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300' },
-  dormant: { label: 'Schlafend', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300' },
-  cold: { label: 'Kalt', cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300' },
+  active: { label: 'Klickt oft', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' },
+  moderate: { label: 'Klickt manchmal', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300' },
+  dormant: { label: 'Klickt selten', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300' },
+  cold: { label: 'Kein Klick', cls: 'bg-[var(--bg-secondary)] text-[var(--text-muted)]' },
 }
 
 export interface NewsletterSend {
