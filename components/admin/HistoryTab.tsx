@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import EngagementTrendChart from './charts/EngagementTrendChart'
+import SendTimelineChart from './charts/SendTimelineChart'
 import SubscriberGrowthChart from './charts/SubscriberGrowthChart'
 import { buildMultiBlockNewsletterHtml } from '@/lib/newsletter-template'
 import type { SiteConfig } from '@/lib/site-config'
@@ -12,6 +13,8 @@ import type {
   OverallStatsData, NewsletterRecipientRow, LinkClickRow,
 } from './types'
 import { formatDate } from './types'
+import { formatOffset } from '@/lib/send-timeline'
+import { parseDbDate } from '@/lib/parse-db-date'
 import { useToast } from '../ui/ToastProvider'
 import { EngagementDot } from '../ui/EngagementIndicator'
 import { ClickHeatmap, ClickHeatmapList } from './history/ClickHeatmap'
@@ -62,6 +65,7 @@ export default function HistoryTab({
   const [sendLinkClicks, setSendLinkClicks] = useState<LinkClickRow[]>([])
   const [sendBlocksJson, setSendBlocksJson] = useState<string | null>(null)
   const [sendVariants, setSendVariants] = useState<VariantStats[]>([])
+  const [sendClickTimes, setSendClickTimes] = useState<string[]>([])
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryConfirm, setRetryConfirm] = useState(false)
@@ -110,6 +114,7 @@ export default function HistoryTab({
       setSendLinkClicks(json.sendDetail?.linkClicks ?? [])
       setSendBlocksJson(json.sendDetail?.blocksJson ?? null)
       setSendVariants(json.sendDetail?.variants ?? [])
+      setSendClickTimes(json.sendDetail?.clickTimes ?? [])
     } catch (err) {
       console.error('Failed to load send detail:', err)
     }
@@ -170,7 +175,7 @@ export default function HistoryTab({
       {/* Detail View */}
       {selectedSend ? (
         <div className="space-y-6">
-          <button onClick={() => { setSelectedSend(null); setSendRecipients([]); setSendLinkClicks([]); setSendBlocksJson(null); setSendVariants([]) }} className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
+          <button onClick={() => { setSelectedSend(null); setSendRecipients([]); setSendLinkClicks([]); setSendBlocksJson(null); setSendVariants([]); setSendClickTimes([]) }} className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             <span>←</span> Zurück zur Übersicht
           </button>
 
@@ -215,6 +220,14 @@ export default function HistoryTab({
                   <div className="mt-1 text-xs text-[var(--text-secondary)]">Bounced</div>
                 </div>
               </div>
+
+              {/* Zeitachse: Versand und Klicks nebeneinander. Direkt unter den
+                  Summenkacheln, weil sie die Frage beantwortet, die sich beim
+                  Blick auf "8 Klicks" als nächstes stellt: wann kamen die? */}
+              <SendTimelineChart
+                deliveries={sendRecipients.map((r) => r.delivered_at).filter((d): d is string => !!d)}
+                clicks={sendClickTimes}
+              />
 
               {/* A/B Variants */}
               {sendVariants.length > 0 && (() => {
@@ -319,7 +332,7 @@ export default function HistoryTab({
                   <div className="border-b border-[var(--border)] px-5 py-3"><h4 className="font-medium text-[var(--text)]">Empfänger ({sendRecipients.length})</h4></div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                      <thead><tr className="border-b border-[var(--border)]"><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">E-Mail</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Status</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Zugestellt</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)] text-right">Klicks</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Bounce</th></tr></thead>
+                      <thead><tr className="border-b border-[var(--border)]"><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">E-Mail</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Status</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Zugestellt</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Geklickt</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)] text-right">Klicks</th><th className="px-5 py-3 font-medium text-[var(--text-secondary)]">Bounce</th></tr></thead>
                       <tbody>
                         {sendRecipients.map((r) => {
                           const badge = RECIPIENT_BADGE[r.status] ?? RECIPIENT_BADGE.sent
@@ -336,6 +349,23 @@ export default function HistoryTab({
                               </td>
                               <td className="px-5 py-3"><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>{badge.label}</span></td>
                               <td className="px-5 py-3 text-[var(--text-secondary)]">{r.delivered_at ? formatDate(r.delivered_at) : '—'}</td>
+                              <td className="px-5 py-3 text-[var(--text-secondary)]">
+                                {r.clicked_at ? (
+                                  <>
+                                    <div className="text-[var(--text)]">{formatDate(r.clicked_at)}</div>
+                                    {/* Der Abstand zur eigenen Zustellung, nicht zum Versandstart —
+                                        die Mails gehen gestaffelt raus, eine blosse Uhrzeit liesse
+                                        sich zwischen zwei Empfängern sonst nicht vergleichen. */}
+                                    {r.delivered_at && (
+                                      <div className="text-[11px] text-[var(--text-muted)]">
+                                        {formatOffset(Math.round(
+                                          (parseDbDate(r.clicked_at).getTime() - parseDbDate(r.delivered_at).getTime()) / 60000,
+                                        ))}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : '—'}
+                              </td>
                               <td className="px-5 py-3 text-right text-[var(--text)]">{r.click_count > 0 ? r.click_count : '—'}</td>
                               <td className="px-5 py-3 text-[var(--text-secondary)]">
                                 {bounceLabel ? (

@@ -673,6 +673,26 @@ export async function getLinkClicksForSend(sendId: number): Promise<LinkClickSta
   }))
 }
 
+/**
+ * Zeitpunkte ALLER Engagement-Klicks eines Versands, für die Zeitachse.
+ *
+ * Bewusst nicht recipients.clicked_at: dort steht nur der erste Klick pro
+ * Person. Für die Frage "wann kamen die Klicks rein" zählt jeder einzelne.
+ * Scanner- und Abmeldeklicks bleiben draussen — ein Scanner klickt in der
+ * Sekunde der Zustellung und würde einen Ausschlag ganz links erzeugen, der
+ * mit dem Verhalten der Leser nichts zu tun hat.
+ */
+export async function getClickTimestampsForSend(sendId: number): Promise<string[]> {
+  const db = getDb()
+  const rows = await db.run(sql`
+    SELECT clicked_at
+    FROM newsletter_link_clicks
+    WHERE send_id = ${sendId} AND is_bot = 0 AND is_unsubscribe = 0
+    ORDER BY clicked_at
+  `)
+  return (rows.rows ?? []).map((r) => r.clicked_at as string)
+}
+
 export async function getOverallNewsletterStats(siteId: string): Promise<OverallStats> {
   const db = getDb()
   // Nur Sends mit echten Tracking-Daten zählen (siehe TRACKED_SENDS): abgebrochene

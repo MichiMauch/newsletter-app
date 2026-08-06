@@ -5,6 +5,7 @@ import {
   getNewsletterSendsWithStats,
   getRecipientsForSend,
   getLinkClicksForSend,
+  getClickTimestampsForSend,
   getSendBlocksJson,
   getOverallNewsletterStats,
   getBounceOverview,
@@ -48,13 +49,14 @@ export async function GET(request: Request) {
       if (isNaN(id)) {
         return new Response(JSON.stringify({ error: 'Ungültige sendDetail ID.' }), { status: 400, headers: JSON_HEADERS })
       }
-      const [recipients, linkClicks, blocksJson, variants] = await Promise.all([
+      const [recipients, linkClicks, blocksJson, variants, clickTimes] = await Promise.all([
         getRecipientsForSend(SITE_ID, id),
         getLinkClicksForSend(id),
         getSendBlocksJson(id),
         getVariantsForSend(id),
+        getClickTimestampsForSend(id),
       ])
-      return new Response(JSON.stringify({ sendDetail: { recipients, linkClicks, blocksJson, variants } }), { status: 200, headers: JSON_HEADERS })
+      return new Response(JSON.stringify({ sendDetail: { recipients, linkClicks, blocksJson, variants, clickTimes } }), { status: 200, headers: JSON_HEADERS })
     }
 
     const [subscribers, sends] = await Promise.all([
