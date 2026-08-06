@@ -584,12 +584,32 @@ export async function updateRecipientEvent(
       // 'delayed' ist der wichtige Fall: bisher blieb so eine Mail auf 'sent'
       // stehen und war im UI nicht von einem echten Fehlschlag zu
       // unterscheiden, obwohl Resend noch selbst weiterversucht.
-      await db.run(sql`
+      const changed = await db.run(sql`
         UPDATE newsletter_recipients
         SET status = ${event}
         WHERE id = ${recipient.id}
           AND status IN ('sent', 'delayed')
       `)
+
+      // 'suppressed' heisst: Resend hat die Mail gar nicht erst rausgeschickt,
+      // weil die Adresse auf SEINER Sperrliste steht — dort landet sie nur nach
+      // einem Hard Bounce oder einer Beschwerde. Das ist eine verbindliche
+      // Auskunft und wiegt schwerer als unsere eigene Historie, die davon
+      // nichts wissen muss (die Bounce-Typen kamen lange gar nicht an).
+      //
+      // Ohne diese Sperre entstünde eine Sackgasse: eine gesperrte Adresse
+      // bounct nie wieder — Resend versucht es ja nicht — also wächst die
+      // Bounce-Serie nie, und wir würden sie bei jedem Versand erneut
+      // anschreiben.
+      if (event === 'suppressed' && (changed.rowsAffected ?? 0) > 0) {
+        await db.update(newsletterSubscribers)
+          .set({ status: 'blocked', blockedAt: sql`datetime('now')` })
+          .where(and(
+            eq(newsletterSubscribers.siteId, recipient.siteId),
+            eq(newsletterSubscribers.email, recipient.email),
+            eq(newsletterSubscribers.status, 'active'),
+          ))
+      }
       break
     }
   }

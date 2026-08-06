@@ -228,6 +228,39 @@ describe('updateRecipientEvent — Zwischenstände', () => {
     expect((await recipient('resend-0')).status).toBe('delivered')
   })
 
+  it('lässt aus einer verzögerten Mail einen Bounce werden', async () => {
+    // Genau der Ablauf vom 06.08.: Resend meldete erst delivery_delayed und
+    // gab nach 840 Minuten auf. Ein Soft Bounce erreicht uns IMMER auf diesem
+    // Weg — als 'bounced' vom Typ 'Transient', nicht schon beim ersten
+    // Fehlversuch. Bliebe die Zeile auf 'delayed' hängen, würde der Bounce
+    // nicht in die Sperr-Serie zählen.
+    await updateRecipientEvent('resend-0', 'delayed', T)
+    await updateRecipientEvent('resend-0', 'bounced', T, bounceMetadata({
+      type: 'Transient', subType: 'General',
+    }))
+
+    const r = await recipient('resend-0')
+    expect(r.status).toBe('bounced')
+    expect(r.bounce_type).toBe('Transient')
+    expect((await sendCounters()).bounced_count).toBe(1)
+  })
+
+  it('sperrt eine von Resend gesperrte Adresse sofort', async () => {
+    // Sackgasse sonst: Resend schickt gar nicht erst, also bounct die Adresse
+    // nie wieder, also wächst die Serie nie — wir würden sie ewig anschreiben.
+    await updateRecipientEvent('resend-0', 'suppressed', T)
+
+    const r = await db.run(sql`SELECT status FROM newsletter_subscribers WHERE email = 'a@example.com'`)
+    expect(r.rows[0].status).toBe('blocked')
+  })
+
+  it('sperrt bei verzögerter Zustellung NICHT', async () => {
+    await updateRecipientEvent('resend-0', 'delayed', T)
+
+    const r = await db.run(sql`SELECT status FROM newsletter_subscribers WHERE email = 'a@example.com'`)
+    expect(r.rows[0].status).toBe('active')
+  })
+
   it('hält failed und suppressed auseinander', async () => {
     await updateRecipientEvent('resend-0', 'failed', T)
     expect((await recipient('resend-0')).status).toBe('failed')
