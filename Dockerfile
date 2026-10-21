@@ -1,6 +1,6 @@
 # Replaces the Nixpacks build: Nixpacks pins Node to an old 22.x, while the
 # official image picks up Node security patches on every rebuild.
-FROM node:22-alpine AS base
+FROM node:24-alpine AS base
 
 # --- Dependencies ---
 FROM base AS deps
