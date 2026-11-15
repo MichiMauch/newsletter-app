@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { withSentryConfig } from "@sentry/nextjs";
+import { withSentryConfig } from "@sentry/nextjs/config";
 
 const nextConfig: NextConfig = {
   // Allow tests (or parallel runs) to point at a separate build dir so the
@@ -21,7 +21,7 @@ export default withSentryConfig(nextConfig, {
   authToken: process.env.SENTRY_AUTH_TOKEN,
   // Tunnel SDK requests through this app to bypass ad-blockers.
   tunnelRoute: "/monitoring",
-  disableLogger: true,
+  webpack: { treeshake: { removeDebugLogging: true } },
   // Skip telemetry beacons + source-map upload locally — uploads only run when
   // SENTRY_AUTH_TOKEN is set anyway, but the option here keeps build noise low.
   telemetry: false,

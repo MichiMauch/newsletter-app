@@ -34,7 +34,7 @@
     "@libsql/client": "^0.17.2",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.1",
-    "@sentry/nextjs": "^10.76.2",
+    "@sentry/nextjs": "^11.12.0",
     "@tiptap/extension-link": "^3.32.0",
     "@tiptap/pm": "^3.32.0",
     "@tiptap/react": "^3.32.0",
