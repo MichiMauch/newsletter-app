@@ -52,7 +52,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "@react-email/ui": "^6.11.3",
+    "@react-email/ui": "^6.11.16",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.39",
     "@types/react": "^19",
