@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { clearSentEmails, loginAsAdmin, readSentEmails, sendsOnly } from './helpers'
+import { E2E_LIST_ID, clearSentEmails, loginAsAdmin, readSentEmails, sendsOnly } from './helpers'
 
 test.describe('admin: A/B subject test', () => {
   test.beforeEach(async ({ request }) => {
@@ -14,6 +14,7 @@ test.describe('admin: A/B subject test', () => {
     const res = await request.post('/api/admin/newsletter', {
       data: {
         action: 'send',
+        listId: E2E_LIST_ID,
         subject: 'Geplante Variante A',
         blocks: [{ id: 'b1', type: 'text', content: 'Hi scheduled A/B' }],
         scheduledFor,
@@ -53,6 +54,7 @@ test.describe('admin: A/B subject test', () => {
     const res = await request.post('/api/admin/newsletter', {
       data: {
         action: 'send',
+        listId: E2E_LIST_ID,
         subject: 'A',
         blocks: [{ id: 'b1', type: 'text', content: 'Hi' }],
         useSto: true,
@@ -71,6 +73,7 @@ test.describe('admin: A/B subject test', () => {
     const res = await request.post('/api/admin/newsletter', {
       data: {
         action: 'send',
+        listId: E2E_LIST_ID,
         subject: 'Variante A',
         blocks: [{ id: 'b1', type: 'text', content: 'Hi from A/B' }],
         variants: [

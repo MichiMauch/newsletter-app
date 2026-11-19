@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { clearSentEmails, loginAsAdmin, readSentEmails, sendsOnly } from './helpers'
+import { E2E_LIST_SLUG, clearSentEmails, loginAsAdmin, readSentEmails, sendsOnly } from './helpers'
 
 // Subscribe is rate-limited per IP (5/h). Tests that share the default IP
 // would fail intermittently as the suite grows — pin a unique XFF per request.
@@ -18,7 +18,7 @@ test.describe('public subscribe flow', () => {
     // echo the foreign Origin into Access-Control-Allow-Origin, so a real
     // browser would block the response.
     const res = await request.post('/api/v1/subscribe', {
-      data: { email: 'origin-test@e2e.test' },
+      data: { email: 'origin-test@e2e.test', listSlug: E2E_LIST_SLUG },
       headers: {
         'Content-Type': 'application/json',
         Origin: 'https://attacker.example',
@@ -30,7 +30,7 @@ test.describe('public subscribe flow', () => {
 
   test('valid signup triggers a confirmation email', async ({ request }) => {
     const res = await request.post('/api/v1/subscribe', {
-      data: { email: 'newcomer@e2e.test' },
+      data: { email: 'newcomer@e2e.test', listSlug: E2E_LIST_SLUG },
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://127.0.0.1:3100',
@@ -49,7 +49,7 @@ test.describe('public subscribe flow', () => {
 
   test('invalid email format is rejected without sending mail', async ({ request }) => {
     const res = await request.post('/api/v1/subscribe', {
-      data: { email: 'not-an-email' },
+      data: { email: 'not-an-email', listSlug: E2E_LIST_SLUG },
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://127.0.0.1:3100',
@@ -63,7 +63,7 @@ test.describe('public subscribe flow', () => {
   test('clicking the confirmation link confirms the subscriber and redirects', async ({ request }) => {
     // 1. Subscribe
     const subRes = await request.post('/api/v1/subscribe', {
-      data: { email: 'confirm-flow@e2e.test' },
+      data: { email: 'confirm-flow@e2e.test', listSlug: E2E_LIST_SLUG },
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://127.0.0.1:3100',
@@ -104,7 +104,7 @@ test.describe('public subscribe flow', () => {
 
   test('confirm redirect carries the unsubscribe token to the welcome page', async ({ request }) => {
     const subRes = await request.post('/api/v1/subscribe', {
-      data: { email: 'name-flow@e2e.test' },
+      data: { email: 'name-flow@e2e.test', listSlug: E2E_LIST_SLUG },
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://127.0.0.1:3100',
@@ -133,7 +133,7 @@ test.describe('public subscribe flow', () => {
 
     // 1. Sign up + extract confirm token
     await request.post('/api/v1/subscribe', {
-      data: { email },
+      data: { email, listSlug: E2E_LIST_SLUG },
       headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3100', 'X-Forwarded-For': uniqueIp() },
     })
     const sends = sendsOnly(await readSentEmails(request))
@@ -179,7 +179,7 @@ test.describe('public subscribe flow', () => {
 
     // 1. Subscribe with a recognizable User-Agent
     const subRes = await request.post('/api/v1/subscribe', {
-      data: { email },
+      data: { email, listSlug: E2E_LIST_SLUG },
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://127.0.0.1:3100',

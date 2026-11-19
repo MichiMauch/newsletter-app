@@ -3,6 +3,11 @@ import { expect } from '@playwright/test'
 
 export const ADMIN_PASSWORD = 'e2e-admin-password-not-secret'
 
+// Seeded by scripts/e2e-setup.ts — all 5 seed subscribers are members.
+// Subscribe requires a list slug and sends require a list (or tag filter).
+export const E2E_LIST_SLUG = 'newsletter'
+export const E2E_LIST_ID = 1
+
 /**
  * Log in via the real /api/admin/login endpoint and return a context with the
  * admin_session cookie set. Use this in `test.beforeEach` for tests that need

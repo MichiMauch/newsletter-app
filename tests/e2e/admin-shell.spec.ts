@@ -24,7 +24,7 @@ test.describe('admin shell', () => {
     // Sidebar starts collapsed: text labels are hidden, the only stable
     // identifier per link is the `title` attribute set on the icon button.
     await expect(page.locator('a[title="Dashboard"]')).toBeVisible(PAGE_VISIBLE)
-    await expect(page.locator('a[title="Send Center"]')).toBeVisible(PAGE_VISIBLE)
+    await expect(page.locator('a[title="Senden"]')).toBeVisible(PAGE_VISIBLE)
     await expect(page.locator('a[title="Abonnenten"]')).toBeVisible(PAGE_VISIBLE)
   })
 })

@@ -94,7 +94,7 @@ async function main() {
     { email: 'dave@e2e.test', token: 't-dave', status: 'active' as const },
     { email: 'eve@e2e.test', token: 't-eve', status: 'active' as const },
   ]
-  await db.insert(schema.newsletterSubscribers).values(
+  const inserted = await db.insert(schema.newsletterSubscribers).values(
     subscribers.map((s) => ({
       siteId: 'kokomo',
       email: s.email,
@@ -102,6 +102,17 @@ async function main() {
       status: s.status,
       confirmedAt: new Date().toISOString(),
     })),
+  ).returning({ id: schema.newsletterSubscribers.id, token: schema.newsletterSubscribers.token })
+
+  // One list with every seed subscriber. Subscribe requires a list slug and
+  // sends require a list, so the tests use this one (id 1, slug 'newsletter').
+  const [list] = await db.insert(schema.subscriberLists).values({
+    siteId: 'kokomo',
+    name: 'Newsletter (E2E)',
+    slug: 'newsletter',
+  }).returning({ id: schema.subscriberLists.id })
+  await db.insert(schema.subscriberListMembers).values(
+    inserted.map((s) => ({ listId: list.id, subscriberId: s.id, token: `l-${s.token}` })),
   )
 
   // Content items so the studio has posts to drag in
