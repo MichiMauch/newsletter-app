@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
 interface StatusPayload {
@@ -83,18 +84,18 @@ export default function StatusPill() {
 
       <span className="text-[var(--text-muted)]" aria-hidden>·</span>
 
-      <a
+      <Link
         href="/admin/newsletter/subscribers"
         className="tabular-nums text-[var(--text)] transition-colors hover:text-primary-600 dark:hover:text-primary-400"
       >
         {data.confirmedSubscribers.toLocaleString('de-CH')}{' '}
         <span className="text-[var(--text-secondary)]">aktive Abos</span>
-      </a>
+      </Link>
 
       <span className="text-[var(--text-muted)]" aria-hidden>·</span>
 
       {data.nextScheduledSend ? (
-        <a
+        <Link
           href="/admin/newsletter/send/history"
           className="flex items-center gap-1.5 text-[var(--text)] transition-colors hover:text-primary-600 dark:hover:text-primary-400"
           title={data.nextScheduledSend.subject}
@@ -103,7 +104,7 @@ export default function StatusPill() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span>Nächster Send: {formatNextSend(data.nextScheduledSend.scheduledFor)}</span>
-        </a>
+        </Link>
       ) : (
         <span className="text-[var(--text-muted)]">Kein Send geplant</span>
       )}
